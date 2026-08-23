@@ -1,0 +1,110 @@
+.hero-connect{
+  position:absolute; top:16px; right:var(--gutter); z-index:6;
+}
+.hero-head{ padding-top: 8px; }
+.connect-btn{
+  border:1px solid var(--line); background:#fff; color:var(--ink);
+  padding:9px 14px; font-size:13px; font-weight:500; letter-spacing:-.01em;
+}
+.connect-btn:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
+.connect-btn.addr{ font-family:var(--mono); letter-spacing:.08em; font-size:11px; text-transform:uppercase; }
+
+.wc-overlay{
+  position:fixed; inset:0; z-index:200;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.55);
+  padding:20px;
+}
+.wc-modal{
+  width:min(100%, 380px);
+  background:#1a1a1a;
+  color:#fff;
+  border-radius:28px;
+  padding:18px 16px 14px;
+  box-shadow:0 24px 80px rgba(0,0,0,.45);
+}
+.wc-head{
+  display:grid; grid-template-columns:36px 1fr 36px;
+  align-items:center; margin-bottom:16px;
+}
+.wc-head h2{
+  margin:0; text-align:center; font-size:18px; font-weight:600; letter-spacing:-.02em;
+}
+.wc-icon{
+  width:32px; height:32px; border-radius:50%;
+  border:1px solid rgba(255,255,255,.12);
+  background:transparent; color:#cfcfcf;
+  display:grid; place-items:center; font-size:14px; padding:0;
+}
+.wc-icon:hover{ background:rgba(255,255,255,.08); color:#fff; }
+.wc-list{ display:flex; flex-direction:column; gap:8px; }
+.wc-row{
+  display:flex; align-items:center; justify-content:space-between;
+  width:100%; border:0; border-radius:14px;
+  background:#2a2a2a; color:#fff;
+  padding:14px 14px 14px 16px; text-align:left;
+  font-size:16px; font-weight:500;
+}
+.wc-row:hover{ background:#333; }
+.wc-row:disabled{ opacity:.55; }
+.wc-row .meta{ display:flex; align-items:center; gap:10px; }
+.wc-row .tag{
+  font-size:11px; font-weight:400; color:rgba(255,255,255,.4);
+}
+.wc-logo{
+  width:36px; height:36px; border-radius:10px; object-fit:cover;
+  background:#111; flex:0 0 auto;
+}
+.wc-logo.fallback{
+  display:grid; place-items:center; font-size:14px; font-weight:600; color:#fff;
+  background:#3a3a3a;
+}
+.wc-empty{
+  margin:8px 4px 18px; color:rgba(255,255,255,.5); font-size:14px; line-height:1.45; text-align:center;
+}
+.wc-foot{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  margin:14px 0 4px; color:rgba(255,255,255,.45); font-size:13px;
+}
+.wc-foot a{ color:rgba(255,255,255,.55); }
+.wc-foot a:hover{ color:#fff; text-decoration:underline; text-underline-offset:3px; }
+.wc-err{ margin:10px 4px 0; color:#FF4D2E; font-size:12px; text-align:center; }
+
+.swap .pay-meta{
+  display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:22px;
+}
+.swap .bal{ color:var(--muted); font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-family:var(--mono); }
+.swap .pcts{ display:flex; align-items:center; gap:4px; margin-left:auto; flex:0 0 auto; }
+.swap .pcts button{
+  border:1px solid var(--line); background:#fff; color:var(--muted);
+  padding:3px 7px; font-size:10px; font-weight:500; letter-spacing:.08em;
+  text-transform:uppercase; font-family:var(--mono);
+}
+.swap .pcts button:hover:not(:disabled){ color:var(--ink); border-color:var(--ink); }
+.swap .pcts button:disabled{ opacity:.4; }
+.swap .err{
+  margin:10px 0 0; text-align:center; color:var(--coral); font-size:12px; line-height:1.4;
+}
+.swap-tabs{
+  display:grid; grid-template-columns:1fr 1fr; gap:6px;
+  margin:0 0 14px;
+}
+.swap-tabs button{
+  border:1px solid var(--line); background:#fff; color:var(--muted);
+  padding:10px 12px; font-size:13px; font-weight:500; letter-spacing:.08em;
+  text-transform:uppercase; font-family:var(--mono);
+}
+.swap-tabs button.on{
+  background:var(--ink); color:#fff; border-color:var(--ink);
+}
+.swap-tabs button:hover:not(.on){ color:var(--ink); }
+.swap .flip button{
+  width:34px; height:34px; display:grid; place-items:center;
+  border:1px solid var(--line); background:#fff; color:var(--muted); font-size:16px;
+}
+.swap .flip button:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
+.swap .dot.usdg{ background:#2775CA; }
+.swap .sell-note{
+  display:block; margin:12px 0 0; text-align:center;
+  color:var(--muted); font-size:12px;
+}
