@@ -33,6 +33,23 @@ export const hookedV1Abi = [
     inputs: [],
     outputs: [{ name: '', type: 'int24' }],
   },
+  {
+    type: 'event',
+    name: 'BuyFeeRecorded',
+    inputs: [
+      { name: 'listingId', type: 'uint256', indexed: true },
+      { name: 'buyId', type: 'uint256', indexed: true },
+      { name: 'mainToken', type: 'address', indexed: false },
+      { name: 'quoteAmountIn', type: 'uint256', indexed: false },
+      { name: 'mainAmountOut', type: 'uint256', indexed: false },
+      { name: 'feeMainTaken', type: 'uint256', indexed: false },
+      { name: 'feeMainToCollector', type: 'uint256', indexed: false },
+      { name: 'feeQuoteToJackpot', type: 'uint256', indexed: false },
+      { name: 'feeQuoteToOps', type: 'uint256', indexed: false },
+      { name: 'timestamp', type: 'uint64', indexed: false },
+      { name: 'blockNumber', type: 'uint64', indexed: false },
+    ],
+  },
 ] as const
 
 export const jackpotPoolAbi = [
@@ -62,6 +79,16 @@ export const jackpotPoolAbi = [
       { name: 'target', type: 'uint256', indexed: false },
     ],
   },
+  {
+    type: 'event',
+    name: 'JackpotMiss',
+    inputs: [
+      { name: 'buyId', type: 'uint256', indexed: true },
+      { name: 'recipient', type: 'address', indexed: true },
+      { name: 'winProbWad', type: 'uint256', indexed: false },
+      { name: 'roll', type: 'uint256', indexed: false },
+    ],
+  },
 ] as const
 
 export const rewardsCollectorAbi = [
@@ -75,6 +102,26 @@ export const rewardsCollectorAbi = [
       { name: 'multiplierWad', type: 'uint256', indexed: false },
       { name: 'bonusPaid', type: 'uint256', indexed: false },
       { name: 'roll', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'TicketOpened',
+    inputs: [
+      { name: 'buyId', type: 'uint256', indexed: true },
+      { name: 'listingId', type: 'uint256', indexed: true },
+      { name: 'mainToken', type: 'address', indexed: false },
+      { name: 'mainAmountOut', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'TicketSkipped',
+    inputs: [
+      { name: 'buyId', type: 'uint256', indexed: true },
+      { name: 'listingId', type: 'uint256', indexed: true },
+      { name: 'quoteAmountIn', type: 'uint256', indexed: false },
+      { name: 'minBuyUsdg', type: 'uint256', indexed: false },
     ],
   },
 ] as const

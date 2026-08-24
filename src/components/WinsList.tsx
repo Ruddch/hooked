@@ -213,14 +213,19 @@ export function WinsList() {
   useEffect(() => {
     if (!client) return
     let cancelled = false
-    fetchOnchainWins(client).then((got) => {
-      if (cancelled || !got || (got.rows.length === 0 && !got.lastJack)) return
-      setOnchain(true)
-      setLastJack(got.lastJack ?? fakeJack())
-      setRows(got.rows)
-    })
+    const refresh = () => {
+      fetchOnchainWins(client).then((got) => {
+        if (cancelled || !got || (got.rows.length === 0 && !got.lastJack)) return
+        setOnchain(true)
+        setLastJack(got.lastJack ?? fakeJack())
+        setRows(got.rows)
+      })
+    }
+    refresh()
+    window.addEventListener('hooked:loot-settled', refresh)
     return () => {
       cancelled = true
+      window.removeEventListener('hooked:loot-settled', refresh)
     }
   }, [client])
 
@@ -257,8 +262,9 @@ export function WinsList() {
   }, [client, looking, trimmed])
 
   const list = useMemo(() => {
-    const board = lastJack
-      ? [lastJack, ...rows.filter((w) => !sameWin(w, lastJack))].slice(0, MAX)
+    const jack = lastJack
+    const board = jack
+      ? [jack, ...rows.filter((w) => !sameWin(w, jack))].slice(0, MAX)
       : rows.slice(0, MAX)
     if (!looking) return board
     const local = board.filter((w) => matchesWallet(w.wallet, trimmed))

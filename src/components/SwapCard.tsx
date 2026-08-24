@@ -11,7 +11,13 @@ import { erc20Abi } from '../abi/erc20'
 import { hookedV1Abi, poolSwapTestAbi } from '../abi/hooked'
 import { robinhood } from '../chain'
 import { contracts, tokenMeta } from '../config'
-import { startLootDrop } from '../fx/homeFx'
+import { closeLootDrop, startLootDrop, startLootWaiting } from '../fx/homeFx'
+import {
+  LootTimeoutError,
+  parseBuyTicketFromReceipt,
+  toLootDrop,
+  waitForLootSettle,
+} from '../lib/lootSettle'
 import { poolManagerAbi, poolStateSlot, quoteExactIn, sqrtPriceX96FromSlot0 } from '../lib/poolQuote'
 import { useWalletUi } from './ConnectWallet'
 import { TokenCa } from './TokenCa'
@@ -49,6 +55,7 @@ export function SwapCard() {
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
   const [amount, setAmount] = useState('')
   const [busyLoot, setBusyLoot] = useState(false)
+  const [settling, setSettling] = useState(false)
   const [pendingKind, setPendingKind] = useState<'approve' | 'swap' | null>(null)
   const [localErr, setLocalErr] = useState<string | null>(null)
 
@@ -136,7 +143,10 @@ export function SwapCard() {
   }, [balance.data, payDecimals])
 
   useEffect(() => {
-    const onClosed = () => setBusyLoot(false)
+    const onClosed = () => {
+      setBusyLoot(false)
+      setSettling(false)
+    }
     window.addEventListener('hooked:plinko-closed', onClosed)
     return () => window.removeEventListener('hooked:plinko-closed', onClosed)
   }, [])
@@ -148,6 +158,7 @@ export function SwapCard() {
     if (!onRightChain) return switching ? 'Switching…' : 'Switch to Robinhood'
     if (pendingKind === 'approve') return writing ? 'Approve in wallet…' : 'Approving…'
     if (pendingKind === 'swap') return writing ? 'Confirm swap…' : 'Swapping…'
+    if (settling) return 'Settling…'
     if (busyLoot) return 'Dropping…'
     if (!(humanIn > 0)) return side === 'buy' ? 'Swap & drop' : 'Sell'
     if (needsApprove) return side === 'buy' ? 'Approve USDG' : 'Approve $HOOKED'
@@ -182,7 +193,6 @@ export function SwapCard() {
     const amountIn = parsed
     const zeroForOne = side === 'buy'
     const token = payToken
-    const lootIn = Number(formatUnits(amountIn, payDecimals)) || 1
 
     try {
       if (needsApprove) {
@@ -232,8 +242,42 @@ export function SwapCard() {
         return
       }
       if (zeroForOne) {
+        const ticket = parseBuyTicketFromReceipt(swapped)
+        if (ticket.kind !== 'open' || !address || swapped.blockNumber == null) return
+
         setBusyLoot(true)
-        startLootDrop(lootIn)
+        setSettling(true)
+        startLootWaiting()
+        const ac = new AbortController()
+        const onClosed = () => ac.abort()
+        window.addEventListener('hooked:plinko-closed', onClosed)
+        try {
+          const settle = await waitForLootSettle({
+            client: publicClient,
+            buyId: ticket.buyId,
+            fromBlock: swapped.blockNumber,
+            signal: ac.signal,
+          })
+          if (ac.signal.aborted) return
+          setSettling(false)
+          startLootDrop(toLootDrop(ticket, settle))
+          window.dispatchEvent(new CustomEvent('hooked:loot-settled'))
+          void balance.refetch()
+        } catch (lootErr) {
+          if (ac.signal.aborted || (lootErr instanceof DOMException && lootErr.name === 'AbortError')) return
+          closeLootDrop()
+          setBusyLoot(false)
+          setSettling(false)
+          setLocalErr(
+            lootErr instanceof LootTimeoutError
+              ? 'Loot still settling — check Recent wins in a bit'
+              : lootErr instanceof Error
+                ? lootErr.message
+                : 'Loot settle failed',
+          )
+        } finally {
+          window.removeEventListener('hooked:plinko-closed', onClosed)
+        }
       }
     } catch (e) {
       setPendingKind(null)
@@ -244,12 +288,12 @@ export function SwapCard() {
     }
   }, [
     isConnected,
+    address,
     onRightChain,
     parsed,
     balance.data,
     needsApprove,
     payToken,
-    payDecimals,
     side,
     poolFee,
     tickSpacing,

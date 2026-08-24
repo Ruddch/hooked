@@ -11,7 +11,8 @@ declare global {
     __showJackReveal?: () => void;
     __hideJackReveal?: () => void;
     __setJackRevealTarget?: (n: number) => void;
-    __startLootDrop?: (amount: number) => void;
+    __startLootDrop?: (drop: { pocketIndex: number; hookedOut: number; jackpot: boolean; jackpotUsd?: number }) => void;
+    __startLootWaiting?: () => void;
     __closePlinko?: () => void;
   }
 }
@@ -741,6 +742,7 @@ const plinkoBox=plinkoEl&&plinkoEl.querySelector(".plinko-box");
 let pkAnim=null;
 if(!plinkoEl||!pcv||!pctx||!plinkoBox) {
   window.__startLootDrop = function(){};
+  window.__startLootWaiting = function(){};
   window.__closePlinko = function(){};
 } else {
 
@@ -749,16 +751,30 @@ function clearJackHit(){
   pkPhase.classList.remove("jack");
 }
 
-function runPlinko(sol, pocketIndex){
-  const result=POCKETS[pocketIndex];
-  const out=sol*BASE_RATE*result.mult;
+function resetPlinkoUi(phase, live, waiting){
   plinkoEl.classList.add("on");
+  plinkoBox.classList.toggle("is-wait", !!waiting);
   clearJackHit();
   pkMult.className="mult"; pkMult.textContent="—";
   pkAmt.className="amt"; pkAmt.textContent="";
   pkClose.className="again";
-  pkPhase.textContent="ball in play…";
-  plinkoLive.textContent="falling…";
+  pkPhase.className=waiting?"phase wait":"phase";
+  pkPhase.textContent=phase;
+  plinkoLive.textContent=live;
+}
+
+function showPlinkoWaiting(){
+  cancelAnimationFrame(pkAnim);
+  resetPlinkoUi("settling on-chain…","waiting for keeper…", true);
+}
+
+function runPlinko(drop){
+  const pocketIndex=Math.max(0, Math.min(POCKETS.length-1, drop.pocketIndex|0));
+  const result=POCKETS[pocketIndex];
+  const out=Number.isFinite(drop.hookedOut)?drop.hookedOut:0;
+  const jackUsd=Number(drop.jackpotUsd)||0;
+  window.__pendingJackpot=!!drop.jackpot;
+  resetPlinkoUi("ball in play…","falling…", false);
 
   const dpr=Math.min(devicePixelRatio||1,2);
   const cssW=Math.min(460, plinkoBox.clientWidth);
@@ -1060,7 +1076,10 @@ function runPlinko(sol, pocketIndex){
       if(window.__pendingJackpot){
         window.__pendingJackpot=false;
         /* let multiplier + amount read, then fullscreen jack */
-        setTimeout(()=>window.__showJackReveal && window.__showJackReveal(), 700);
+        setTimeout(()=>{
+          if(jackUsd>0) window.__setJackRevealTarget?.(jackUsd);
+          window.__showJackReveal && window.__showJackReveal();
+        }, 700);
       } else {
         pkClose.className="again show";
       }
@@ -1089,6 +1108,8 @@ document.querySelectorAll("[data-scroll-odds]").forEach(a=>{
 // swap click handled by React
 function closePlinko(){
   plinkoEl.classList.remove("on");
+  plinkoBox.classList.remove("is-wait");
+  pkPhase.classList.remove("wait");
   clearJackHit();
   cancelAnimationFrame(pkAnim);
   window.dispatchEvent(new CustomEvent("hooked:plinko-closed"));
@@ -1182,16 +1203,24 @@ addEventListener("keydown",e=>{ if(e.key==="Escape"&&plinkoEl.classList.contains
 })();
 
 
-  window.__startLootDrop = function(amount){
-    window.__pendingJackpot = rollJackpot();
-    runPlinko(amount, pickPocket());
+  window.__startLootWaiting = showPlinkoWaiting;
+  window.__startLootDrop = function(drop){
+    runPlinko(drop);
   };
   window.__closePlinko = closePlinko;
   }
 }
 
-export function startLootDrop(amount: number){
-  window.__startLootDrop?.(amount);
+export function startLootWaiting(){
+  window.__startLootWaiting?.();
+}
+
+export function startLootDrop(drop: { pocketIndex: number; hookedOut: number; jackpot: boolean; jackpotUsd?: number }){
+  window.__startLootDrop?.(drop);
+}
+
+export function closeLootDrop(){
+  window.__closePlinko?.();
 }
 
 export function destroyHomeFx(){

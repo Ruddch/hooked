@@ -29,6 +29,12 @@ interface Window {
   __showJackReveal?: () => void
   __hideJackReveal?: () => void
   __setJackRevealTarget?: (n: number) => void
-  __startLootDrop?: (amount: number) => void
+  __startLootDrop?: (drop: {
+    pocketIndex: number
+    hookedOut: number
+    jackpot: boolean
+    jackpotUsd?: number
+  }) => void
+  __startLootWaiting?: () => void
   __closePlinko?: () => void
 }

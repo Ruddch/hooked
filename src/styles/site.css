@@ -401,6 +401,11 @@
     background:#fff;
   }
   .plinko-result .phase{margin:0; color:var(--muted); min-height:1.2em;}
+  .plinko-result .phase.wait{
+    color:var(--ink);
+    animation:jackPhaseBlink 1.1s ease-in-out infinite;
+  }
+  .plinko-box.is-wait #plinko-cv{opacity:.28;}
   .plinko-result .phase.jack{
     color:var(--ink);
     animation:jackPhaseBlink .55s ease-in-out 2;
@@ -456,6 +461,7 @@
   @media(prefers-reduced-motion:reduce){
     .plinko-box.jack-hit,
     .plinko-result .phase.jack,
+    .plinko-result .phase.wait,
     .plinko-result .mult.jack.show{animation:none;}
   }
 
