@@ -21,7 +21,7 @@ The site URL is `https://<user>.github.io/<repo>/`. Vite sets `base` from the re
 
 ## Env
 
-Copy [.env.example](.env.example). Defaults match `contracts/VERIFICATION.md` (smoke listing). Point `VITE_JACKPOT` at a real `JackpotPool` when the prod stack is wired — the mock has no `poolBalance`, so the hero jackpot shows an em dash until then.
+Copy [.env.example](.env.example) for local `.env` (gitignored). GitHub Pages / `npm run build` read committed [.env.production](.env.production) — HookedV1 listing 2.
 
 Wallets: only browser extensions (MetaMask, Rabby, OKX, …). No WalletConnect project id.
 
