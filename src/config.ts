@@ -31,6 +31,9 @@ export const contracts = {
   ),
 } as const
 
+/** Pool Initialize for listing 2 — loot logs cannot exist before this. */
+export const winsFromBlock = BigInt(import.meta.env.VITE_WINS_FROM_BLOCK ?? '45116010')
+
 export const tokenMeta = {
   usdgDecimals: 6,
   mainDecimals: 18,
@@ -38,7 +41,42 @@ export const tokenMeta = {
   mainSymbol: '$HOOKED',
 } as const
 
-export const rpcUrl =
-  import.meta.env.VITE_RPC_URL ?? 'https://rpc.mainnet.chain.robinhood.com'
+/** Public HTTP RPCs that answer from the browser (CORS) on chain 4663. */
+const PUBLIC_RPC_URLS = [
+  'https://rpc.mainnet.chain.robinhood.com',
+  'https://rpc-robinhood.blockmachine.io',
+  'https://robinhood-chain.gateway.tenderly.co',
+]
+
+function parseRpcUrls(raw: string | undefined) {
+  if (!raw?.trim()) return []
+  return raw.split(/[\s,]+/).map((url) => url.trim()).filter(Boolean)
+}
+
+function uniqueUrls(urls: string[]) {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const url of urls) {
+    const key = url.replace(/\/$/, '')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(key)
+  }
+  return out
+}
+
+function shuffleUrls(urls: string[]) {
+  const out = [...urls]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+
+/** Shuffled once per page load so visitors don't all stampede the same host. */
+export const rpcUrls = shuffleUrls(uniqueUrls([...parseRpcUrls(import.meta.env.VITE_RPC_URL), ...PUBLIC_RPC_URLS]))
+
+export const rpcUrl = rpcUrls[0] ?? PUBLIC_RPC_URLS[0]
 
 export const explorerUrl = 'https://robinhoodchain.blockscout.com'

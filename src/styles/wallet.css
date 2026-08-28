@@ -74,6 +74,8 @@
   display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:22px;
 }
 .swap .bal{ color:var(--muted); font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-family:var(--mono); }
+.swap input[type="text"].low,
+.swap .bal.low{ color:var(--coral); }
 .swap .pcts{ display:flex; align-items:center; gap:4px; margin-left:auto; flex:0 0 auto; }
 .swap .pcts button{
   border:1px solid var(--line); background:#fff; color:var(--muted);

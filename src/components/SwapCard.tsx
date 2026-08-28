@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { formatUnits, parseUnits, UserRejectedRequestError } from 'viem'
+import { useQueryClient } from '@tanstack/react-query'
+import { formatUnits, maxUint256, parseUnits, UserRejectedRequestError } from 'viem'
 import {
   useAccount,
   usePublicClient,
@@ -18,7 +19,7 @@ import {
   toLootDrop,
   waitForLootSettle,
 } from '../lib/lootSettle'
-import { poolManagerAbi, poolStateSlot, quoteExactIn, sqrtPriceX96FromSlot0 } from '../lib/poolQuote'
+import { poolManagerAbi, poolStateSlot, quoteExactIn, quoteExactOut, sqrtPriceX96FromSlot0 } from '../lib/poolQuote'
 import { useWalletUi } from './ConnectWallet'
 import { TokenCa } from './TokenCa'
 
@@ -46,22 +47,35 @@ function trimUnits(value: string) {
   return value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
 }
 
+function formatInputAmount(value: bigint, decimals: number, maxFrac: number) {
+  const [whole, frac = ''] = formatUnits(value, decimals).split('.')
+  if (!frac) return whole
+  const cut = frac.slice(0, maxFrac).replace(/0+$/, '')
+  return cut ? `${whole}.${cut}` : whole
+}
+
 export function SwapCard() {
   const { address, isConnected, chainId } = useAccount()
   const { setOpen } = useWalletUi()
   const { switchChain, isPending: switching } = useSwitchChain()
   const publicClient = usePublicClient({ chainId: robinhood.id })
+  const queryClient = useQueryClient()
   const { writeContractAsync, isPending: writing, error: writeError } = useWriteContract()
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
-  const [amount, setAmount] = useState('')
+  const [usdgAmount, setUsdgAmount] = useState('')
+  const [hookedAmount, setHookedAmount] = useState('')
+  const [lastEdited, setLastEdited] = useState<'usdg' | 'hooked'>('usdg')
   const [busyLoot, setBusyLoot] = useState(false)
   const [settling, setSettling] = useState(false)
   const [pendingKind, setPendingKind] = useState<'approve' | 'swap' | null>(null)
+  const [approveMode, setApproveMode] = useState<'exact' | 'max' | null>(null)
   const [localErr, setLocalErr] = useState<string | null>(null)
+  const [amountFocused, setAmountFocused] = useState(false)
 
   const payToken = side === 'buy' ? contracts.usdg : contracts.mainToken
   const payDecimals = side === 'buy' ? tokenMeta.usdgDecimals : tokenMeta.mainDecimals
-  const parsed = parseLoose(amount, payDecimals)
+  const usdgParsed = parseLoose(usdgAmount, tokenMeta.usdgDecimals)
+  const hookedParsed = parseLoose(hookedAmount, tokenMeta.mainDecimals)
   const onRightChain = chainId === robinhood.id
 
   const fee = useReadContract({
@@ -82,7 +96,11 @@ export function SwapCard() {
     abi: erc20Abi,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
-    query: { enabled: Boolean(address), refetchInterval: 12_000 },
+    query: {
+      enabled: Boolean(address),
+      refetchInterval: amountFocused ? 10_000 : false,
+      refetchOnWindowFocus: false,
+    },
   })
 
   const allowance = useReadContract({
@@ -90,7 +108,10 @@ export function SwapCard() {
     abi: erc20Abi,
     functionName: 'allowance',
     args: address ? [address, contracts.swapRouter] : undefined,
-    query: { enabled: Boolean(address), refetchInterval: 8_000 },
+    query: {
+      enabled: Boolean(address),
+      refetchOnWindowFocus: false,
+    },
   })
 
   const slot0 = useReadContract({
@@ -98,28 +119,74 @@ export function SwapCard() {
     abi: poolManagerAbi,
     functionName: 'extsload',
     args: [poolStateSlot(contracts.poolId)],
-    query: { retry: false, refetchInterval: 12_000 },
+    query: {
+      enabled: amountFocused,
+      retry: false,
+      refetchInterval: amountFocused ? 10_000 : false,
+      refetchOnWindowFocus: false,
+    },
   })
 
   const poolFee = fee.data ?? contracts.poolFee
   const tickSpacing = spacing.data ?? contracts.tickSpacing
+  const sqrtP = slot0.data ? sqrtPriceX96FromSlot0(slot0.data) : null
+
+  const derivedHookedIn = useMemo(() => {
+    if (lastEdited !== 'usdg' || usdgParsed == null || sqrtP == null) return null
+    const { amountIn } = quoteExactOut(usdgParsed, sqrtP, false)
+    return amountIn > 0n ? amountIn : null
+  }, [lastEdited, usdgParsed, sqrtP])
+
+  const derivedUsdgIn = useMemo(() => {
+    if (lastEdited !== 'hooked' || hookedParsed == null || sqrtP == null) return null
+    const { amountIn } = quoteExactOut(hookedParsed, sqrtP, true)
+    return amountIn > 0n ? amountIn : null
+  }, [lastEdited, hookedParsed, sqrtP])
+
+  const parsed =
+    side === 'buy'
+      ? lastEdited === 'usdg'
+        ? usdgParsed
+        : derivedUsdgIn
+      : lastEdited === 'hooked'
+        ? hookedParsed
+        : derivedHookedIn
+
+  const amount =
+    side === 'buy'
+      ? lastEdited === 'usdg'
+        ? usdgAmount
+        : derivedUsdgIn != null
+          ? formatInputAmount(derivedUsdgIn, tokenMeta.usdgDecimals, 6)
+          : ''
+      : lastEdited === 'hooked'
+        ? hookedAmount
+        : derivedHookedIn != null
+          ? formatInputAmount(derivedHookedIn, tokenMeta.mainDecimals, 6)
+          : ''
+
   const needsApprove = parsed != null && (allowance.data ?? 0n) < parsed
+  const lowBalance = Boolean(isConnected && parsed != null && balance.data != null && parsed > balance.data)
   const humanIn = Number(amount) || 0
   const outDecimals = side === 'buy' ? tokenMeta.mainDecimals : tokenMeta.usdgDecimals
 
   const quote = useMemo(() => {
-    if (parsed == null || !slot0.data) return null
-    const sqrtP = sqrtPriceX96FromSlot0(slot0.data)
+    if (parsed == null || sqrtP == null) return null
     const { net } = quoteExactIn(parsed, sqrtP, side === 'buy')
     if (net <= 0n) return null
     const base = Number(formatUnits(net, outDecimals))
     if (!Number.isFinite(base) || base <= 0) return null
     return base
-  }, [parsed, slot0.data, side, outDecimals])
+  }, [parsed, sqrtP, side, outDecimals])
 
   const outLow = quote != null && side === 'buy' ? fmtRange(quote * 0.9) : '—'
   const outHigh = quote != null && side === 'buy' ? fmtRange(quote * 4) : '—'
-  const sellOut = quote != null && side === 'sell' ? fmtRange(quote) : '—'
+  const sellOut =
+    lastEdited === 'usdg' && usdgParsed != null
+      ? fmtRange(Number(formatUnits(usdgParsed, tokenMeta.usdgDecimals)))
+      : quote != null && side === 'sell'
+        ? fmtRange(quote)
+        : '—'
 
   const setMode = (next: 'buy' | 'sell') => {
     setSide(next)
@@ -132,8 +199,11 @@ export function SwapCard() {
     if (balance.data == null || balance.data <= 0n) return
     const raw = bps >= 10_000n ? balance.data : (balance.data * bps) / 10_000n
     if (raw <= 0n) return
-    setAmount(trimUnits(formatUnits(raw, payDecimals)))
+    setHookedAmount(trimUnits(formatUnits(raw, tokenMeta.mainDecimals)))
+    setLastEdited('hooked')
     setLocalErr(null)
+    setAmountFocused(true)
+    requestAnimationFrame(() => document.getElementById('amount')?.focus())
   }
 
   const balLabel = useMemo(() => {
@@ -160,12 +230,51 @@ export function SwapCard() {
     if (pendingKind === 'swap') return writing ? 'Confirm swap…' : 'Swapping…'
     if (settling) return 'Settling…'
     if (busyLoot) return 'Dropping…'
+    if (lowBalance && onRightChain) return 'Not enough balance'
     if (!(humanIn > 0)) return side === 'buy' ? 'Swap & drop' : 'Sell'
-    if (needsApprove) return side === 'buy' ? 'Approve USDG' : 'Approve $HOOKED'
     return side === 'buy' ? 'Swap & drop' : 'Sell'
   })()
 
-  const disabled = writing || pendingKind != null || busyLoot || switching
+  const showApprove = Boolean(
+    isConnected && onRightChain && needsApprove && parsed != null && humanIn > 0 && !lowBalance && !busyLoot && !settling,
+  )
+
+  const disabled = writing || pendingKind != null || busyLoot || switching || (lowBalance && onRightChain)
+
+  const applyPayBalance = useCallback(
+    (next: bigint) => {
+      queryClient.setQueryData(balance.queryKey, next)
+    },
+    [balance.queryKey, queryClient],
+  )
+
+  const refreshPayBalance = useCallback(
+    async (blockNumber?: bigint) => {
+      if (!address || !publicClient) {
+        await balance.refetch()
+        return
+      }
+      const waits = [0, 300, 800, 1500]
+      for (const wait of waits) {
+        if (wait) await new Promise((r) => setTimeout(r, wait))
+        try {
+          const next = await publicClient.readContract({
+            address: payToken,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [address],
+            ...(blockNumber != null ? { blockNumber } : {}),
+          })
+          applyPayBalance(next)
+          return
+        } catch {
+          /* receipt node may not have the block yet */
+        }
+      }
+      await balance.refetch()
+    },
+    [address, applyPayBalance, balance, payToken, publicClient],
+  )
 
   const submit = useCallback(async () => {
     setLocalErr(null)
@@ -192,25 +301,8 @@ export function SwapCard() {
 
     const amountIn = parsed
     const zeroForOne = side === 'buy'
-    const token = payToken
 
     try {
-      if (needsApprove) {
-        setPendingKind('approve')
-        const approveHash = await writeContractAsync({
-          address: token,
-          abi: erc20Abi,
-          functionName: 'approve',
-          args: [contracts.swapRouter, amountIn],
-        })
-        const approved = await publicClient.waitForTransactionReceipt({ hash: approveHash })
-        if (approved.status === 'reverted') {
-          setPendingKind(null)
-          setLocalErr('Approve failed')
-          return
-        }
-      }
-
       setPendingKind('swap')
       const swapHash = await writeContractAsync({
         address: contracts.swapRouter,
@@ -235,15 +327,33 @@ export function SwapCard() {
       })
       const swapped = await publicClient.waitForTransactionReceipt({ hash: swapHash })
       setPendingKind(null)
-      void balance.refetch()
-      void allowance.refetch()
       if (swapped.status === 'reverted') {
         setLocalErr('Transaction failed')
+        void refreshPayBalance(swapped.blockNumber ?? undefined)
         return
       }
+      const left = (balance.data ?? 0n) > amountIn ? (balance.data ?? 0n) - amountIn : 0n
+      applyPayBalance(left)
+      if (side === 'sell') {
+        setHookedAmount(left > 0n ? trimUnits(formatUnits(left, tokenMeta.mainDecimals)) : '')
+        setLastEdited('hooked')
+      } else {
+        setUsdgAmount(left > 0n ? formatInputAmount(left, tokenMeta.usdgDecimals, 6) : '')
+        setLastEdited('usdg')
+      }
+      void refreshPayBalance(swapped.blockNumber ?? undefined)
+      void allowance.refetch()
       if (zeroForOne) {
         const ticket = parseBuyTicketFromReceipt(swapped)
-        if (ticket.kind !== 'open' || !address || swapped.blockNumber == null) return
+        if (!address || swapped.blockNumber == null) return
+        if (ticket.kind === 'skipped') {
+          setLocalErr('Buy under 1 USDG skips the loot roll. Fee still goes to the pool.')
+          return
+        }
+        if (ticket.kind !== 'open') {
+          setLocalErr('Swap landed, but no loot ticket opened')
+          return
+        }
 
         setBusyLoot(true)
         setSettling(true)
@@ -258,13 +368,21 @@ export function SwapCard() {
             fromBlock: swapped.blockNumber,
             signal: ac.signal,
           })
-          if (ac.signal.aborted) return
+          if (ac.signal.aborted) {
+            setBusyLoot(false)
+            setSettling(false)
+            return
+          }
           setSettling(false)
           startLootDrop(toLootDrop(ticket, settle))
           window.dispatchEvent(new CustomEvent('hooked:loot-settled'))
-          void balance.refetch()
+          void refreshPayBalance()
         } catch (lootErr) {
-          if (ac.signal.aborted || (lootErr instanceof DOMException && lootErr.name === 'AbortError')) return
+          if (ac.signal.aborted || (lootErr instanceof DOMException && lootErr.name === 'AbortError')) {
+            setBusyLoot(false)
+            setSettling(false)
+            return
+          }
           closeLootDrop()
           setBusyLoot(false)
           setSettling(false)
@@ -292,8 +410,6 @@ export function SwapCard() {
     onRightChain,
     parsed,
     balance.data,
-    needsApprove,
-    payToken,
     side,
     poolFee,
     tickSpacing,
@@ -301,9 +417,43 @@ export function SwapCard() {
     setOpen,
     switchChain,
     writeContractAsync,
-    balance,
+    applyPayBalance,
+    refreshPayBalance,
     allowance,
   ])
+
+  const approveSpend = useCallback(
+    async (value: bigint, mode: 'exact' | 'max') => {
+      setLocalErr(null)
+      if (!publicClient) {
+        setLocalErr('RPC unavailable')
+        return
+      }
+      try {
+        setApproveMode(mode)
+        setPendingKind('approve')
+        const approveHash = await writeContractAsync({
+          address: payToken,
+          abi: erc20Abi,
+          functionName: 'approve',
+          args: [contracts.swapRouter, value],
+        })
+        const approved = await publicClient.waitForTransactionReceipt({ hash: approveHash })
+        setPendingKind(null)
+        setApproveMode(null)
+        void allowance.refetch()
+        if (approved.status === 'reverted') setLocalErr('Approve failed')
+      } catch (e) {
+        setPendingKind(null)
+        setApproveMode(null)
+        const rejected =
+          e instanceof UserRejectedRequestError ||
+          (e instanceof Error && /user rejected|denied|rejected the request/i.test(e.message))
+        if (!rejected && e instanceof Error) setLocalErr(e.message)
+      }
+    },
+    [allowance, payToken, publicClient, writeContractAsync],
+  )
 
   const payName = side === 'buy' ? 'USDG' : '$HOOKED'
   const getName = side === 'buy' ? '$HOOKED' : 'USDG'
@@ -334,21 +484,38 @@ export function SwapCard() {
           inputMode="decimal"
           placeholder="enter amount"
           autoComplete="off"
+          className={lowBalance ? 'low' : undefined}
+          aria-invalid={lowBalance || undefined}
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onFocus={() => setAmountFocused(true)}
+          onBlur={() => setAmountFocused(false)}
+          onChange={(e) => {
+            const next = e.target.value
+            if (side === 'buy') {
+              setUsdgAmount(next)
+              setLastEdited('usdg')
+            } else {
+              setHookedAmount(next)
+              setLastEdited('hooked')
+            }
+          }}
         />
         {side === 'sell' || (balLabel != null && isConnected) ? (
           <div className="pay-meta">
-            {balLabel != null && isConnected ? <span className="bal">bal {balLabel}</span> : <span className="bal" />}
+            {balLabel != null && isConnected ? (
+              <span className={lowBalance ? 'bal low' : 'bal'}>bal {balLabel}</span>
+            ) : (
+              <span className="bal" />
+            )}
             {side === 'sell' ? (
               <div className="pcts">
-                <button type="button" disabled={!canFillSell} onClick={() => fillSell(2_500n)}>
+                <button type="button" disabled={!canFillSell} onMouseDown={(e) => e.preventDefault()} onClick={() => fillSell(2_500n)}>
                   25%
                 </button>
-                <button type="button" disabled={!canFillSell} onClick={() => fillSell(5_000n)}>
+                <button type="button" disabled={!canFillSell} onMouseDown={(e) => e.preventDefault()} onClick={() => fillSell(5_000n)}>
                   50%
                 </button>
-                <button type="button" disabled={!canFillSell} onClick={() => fillSell(10_000n)}>
+                <button type="button" disabled={!canFillSell} onMouseDown={(e) => e.preventDefault()} onClick={() => fillSell(10_000n)}>
                   max
                 </button>
               </div>
@@ -383,23 +550,55 @@ export function SwapCard() {
         </p>
       </div>
       {side === 'buy' ? (
-        <a className="jack-tease" href="#odds" data-scroll-odds>
+        <p className="jack-tease">
           <i className="spark" aria-hidden="true" />
           <span>
             every swap can hit the <b>jackpot</b>
           </span>
-        </a>
+        </p>
       ) : (
         <p className="sell-note">Sells skip the loot roll. Fee goes to jackpot and ops.</p>
       )}
-      <button className="go" id="swapBtn" type="button" disabled={disabled} onClick={submit}>
-        <span className="pxfx" aria-hidden="true" />
-        <span className="lbl">{label}</span>
-      </button>
+      {showApprove ? (
+        <div className="go-row">
+          <button
+            className="go"
+            id="swapBtn"
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              if (parsed != null) void approveSpend(parsed, 'exact')
+            }}
+          >
+            <span className="pxfx" aria-hidden="true" />
+            <span className="lbl">
+              {pendingKind === 'approve' && approveMode === 'exact'
+                ? writing
+                  ? 'Approve in wallet…'
+                  : 'Approving…'
+                : `Approve ${payName}`}
+            </span>
+          </button>
+          <button className="go" type="button" disabled={disabled} onClick={() => void approveSpend(maxUint256, 'max')}>
+            <span className="lbl">
+              {pendingKind === 'approve' && approveMode === 'max'
+                ? writing
+                  ? 'Approve in wallet…'
+                  : 'Approving…'
+                : 'Infinite approve'}
+            </span>
+          </button>
+        </div>
+      ) : (
+        <button className="go" id="swapBtn" type="button" disabled={disabled} onClick={submit}>
+          <span className="pxfx" aria-hidden="true" />
+          <span className="lbl">{label}</span>
+        </button>
+      )}
       {err ? <p className="err">{err}</p> : null}
       {side === 'buy' ? (
-        <a className="hint" href="#odds" data-scroll-odds>
-          view my odds
+        <a className="hint" href="#loot">
+          Loot is the swap.
         </a>
       ) : null}
     </div>

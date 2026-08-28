@@ -14,6 +14,7 @@ interface ImportMetaEnv {
   readonly VITE_TICK_SPACING?: string
   readonly VITE_LISTING_ID?: string
   readonly VITE_POOL_ID?: string
+  readonly VITE_WINS_FROM_BLOCK?: string
 }
 
 interface ImportMeta {

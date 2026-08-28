@@ -730,28 +730,34 @@ export function initHomeFx(){
 })();
 
 /* ===== PIXEL PLINKO ===== */
-const plinkoEl=document.getElementById("plinko");
-const pcv=document.getElementById("plinko-cv");
-const pctx=pcv&&pcv.getContext("2d");
-const pkPhase=document.getElementById("pkPhase");
-const pkMult=document.getElementById("pkMult");
-const pkAmt=document.getElementById("pkAmt");
-const pkClose=document.getElementById("pkClose");
-const plinkoLive=document.getElementById("plinkoLive");
-const plinkoBox=plinkoEl&&plinkoEl.querySelector(".plinko-box");
+let plinkoEl, pcv, pctx, pkPhase, pkMult, pkAmt, pkClose, plinkoLive, plinkoBox;
 let pkAnim=null;
-if(!plinkoEl||!pcv||!pctx||!plinkoBox) {
+function bindPlinkoDom(){
+  plinkoEl=document.getElementById("plinko");
+  pcv=document.getElementById("plinko-cv");
+  pctx=pcv&&pcv.getContext("2d");
+  pkPhase=document.getElementById("pkPhase");
+  pkMult=document.getElementById("pkMult");
+  pkAmt=document.getElementById("pkAmt");
+  pkClose=document.getElementById("pkClose");
+  plinkoLive=document.getElementById("plinkoLive");
+  plinkoBox=plinkoEl&&plinkoEl.querySelector(".plinko-box");
+  return !!(plinkoEl&&pcv&&pctx&&plinkoBox&&pkPhase&&pkMult&&pkAmt&&pkClose&&plinkoLive);
+}
+if(!bindPlinkoDom()) {
   window.__startLootDrop = function(){};
   window.__startLootWaiting = function(){};
   window.__closePlinko = function(){};
 } else {
 
 function clearJackHit(){
+  if(!plinkoBox||!pkPhase) return;
   plinkoBox.classList.remove("jack-hit");
   pkPhase.classList.remove("jack");
 }
 
 function resetPlinkoUi(phase, live, waiting){
+  if(!bindPlinkoDom()) return;
   plinkoEl.classList.add("on");
   plinkoBox.classList.toggle("is-wait", !!waiting);
   clearJackHit();
@@ -763,12 +769,87 @@ function resetPlinkoUi(phase, live, waiting){
   plinkoLive.textContent=live;
 }
 
+const PK_CELL=8;
+const PK_PEG_ROWS=17;
+
+function sizePlinkoCanvas(){
+  const dpr=Math.min(devicePixelRatio||1,2);
+  const cssW=Math.min(460, plinkoBox.clientWidth||460);
+  const cssH=Math.round(cssW*1.18);
+  pcv.width=Math.round(cssW*dpr);
+  pcv.height=Math.round(cssH*dpr);
+  pcv.style.width=cssW+"px";
+  pcv.style.height=cssH+"px";
+  pctx.setTransform(dpr,0,0,dpr,0,0);
+  return {W:cssW, H:cssH};
+}
+
+function layoutPlinkoBoard(W, H){
+  const nPockets=POCKETS.length;
+  const marginX=20, boardTop=22, boardBot=H-78;
+  const pegCols=Math.max(10, nPockets*2);
+  const pocketW=(W-marginX*2)/nPockets;
+  const pegs=[];
+  const pegSpanY=boardBot-boardTop-56;
+  for(let row=0;row<PK_PEG_ROWS;row++){
+    const even=row%2===0;
+    const n=even?pegCols:pegCols-1;
+    const y=boardTop+20+row*(pegSpanY/(PK_PEG_ROWS-1));
+    const offset=even?0:((W-marginX*2)/pegCols)/2;
+    const span=(W-marginX*2)-(even?0:(W-marginX*2)/pegCols);
+    for(let i=0;i<n;i++) pegs.push({x:marginX+offset+(i+0.5)*span/n, y});
+  }
+  return {W, H, nPockets, marginX, boardTop, boardBot, pocketW, pegs};
+}
+
+function drawPlinkoField(board, activeIndex){
+  const {W, H, nPockets, marginX, boardBot, pocketW, pegs}=board;
+  const CELL=PK_CELL;
+  pctx.clearRect(0,0,W,H);
+  pctx.fillStyle="#fff"; pctx.fillRect(0,0,W,H);
+  pctx.strokeStyle="#f3f3f3"; pctx.lineWidth=1; pctx.beginPath();
+  for(let x=0;x<=W;x+=CELL){ pctx.moveTo(x+.5,0); pctx.lineTo(x+.5,H); }
+  for(let y=0;y<=H;y+=CELL){ pctx.moveTo(0,y+.5); pctx.lineTo(W,y+.5); }
+  pctx.stroke();
+  for(const p of pegs){
+    pctx.fillStyle="#0A0A0A";
+    pctx.fillRect(Math.round(p.x/CELL)*CELL, Math.round(p.y/CELL)*CELL, Math.max(3, CELL-4), Math.max(3, CELL-4));
+  }
+  for(let i=0;i<nPockets;i++){
+    const x0=marginX+i*pocketW;
+    const x1=marginX+(i+1)*pocketW;
+    const active=activeIndex!=null&&i===activeIndex;
+    const col=POCKETS[i].col;
+    const c0=Math.floor(x0/CELL), c1=Math.floor((x1-0.001)/CELL);
+    for(let yy=0;yy<36;yy+=CELL){
+      for(let c=c0;c<=c1;c++){
+        pctx.fillStyle=active?col:"#f0f0f0";
+        pctx.globalAlpha=active?0.88:1;
+        pctx.fillRect(c*CELL, Math.round((boardBot+yy)/CELL)*CELL, CELL-1, CELL-1);
+      }
+    }
+    pctx.globalAlpha=1;
+    pctx.fillStyle="#0A0A0A";
+    pctx.font='500 10px "Sneak",sans-serif';
+    pctx.textAlign="center";
+    pctx.fillText(POCKETS[i].mult+"×", (x0+x1)/2, boardBot+24);
+    pctx.fillStyle=col;
+    pctx.globalAlpha=active?1:0.85;
+    pctx.fillRect(Math.round(((x0+x1)/2-4)/CELL)*CELL, Math.round((boardBot+30)/CELL)*CELL, CELL-1, CELL-1);
+    pctx.globalAlpha=1;
+  }
+}
+
 function showPlinkoWaiting(){
   cancelAnimationFrame(pkAnim);
   resetPlinkoUi("settling on-chain…","waiting for keeper…", true);
+  if(!bindPlinkoDom()) return;
+  const {W, H}=sizePlinkoCanvas();
+  drawPlinkoField(layoutPlinkoBoard(W, H), null);
 }
 
 function runPlinko(drop){
+  if(!bindPlinkoDom()) return;
   const pocketIndex=Math.max(0, Math.min(POCKETS.length-1, drop.pocketIndex|0));
   const result=POCKETS[pocketIndex];
   const out=Number.isFinite(drop.hookedOut)?drop.hookedOut:0;
@@ -776,34 +857,14 @@ function runPlinko(drop){
   window.__pendingJackpot=!!drop.jackpot;
   resetPlinkoUi("ball in play…","falling…", false);
 
-  const dpr=Math.min(devicePixelRatio||1,2);
-  const cssW=Math.min(460, plinkoBox.clientWidth);
-  const cssH=Math.round(cssW*1.18);
-  pcv.width=Math.round(cssW*dpr); pcv.height=Math.round(cssH*dpr);
-  pcv.style.width=cssW+"px"; pcv.style.height=cssH+"px";
-  pctx.setTransform(dpr,0,0,dpr,0,0);
-  const W=cssW, H=cssH, CELL=8;
-
-  const nPockets=POCKETS.length;
-  const marginX=20, boardTop=22, boardBot=H-78;
-  const pegRows=17;
-  const pegCols=Math.max(10, nPockets*2);
-  const pocketW=(W-marginX*2)/nPockets;
+  const {W, H}=sizePlinkoCanvas();
+  const board=layoutPlinkoBoard(W, H);
+  const {nPockets, marginX, boardTop, boardBot, pocketW, pegs}=board;
+  const CELL=PK_CELL;
   const ballR=3.6, pegR=2.0;
   /* gentler gravity + softer hits — denser steps feel smoother */
   const G=0.085, DRAG=0.9988, REST=0.68, WALL=0.78;
   const pocketFloor=boardBot+20;
-
-  const pegs=[];
-  const pegSpanY=boardBot-boardTop-56;
-  for(let row=0;row<pegRows;row++){
-    const even=row%2===0;
-    const n=even?pegCols:pegCols-1;
-    const y=boardTop+20+row*(pegSpanY/(pegRows-1));
-    const offset=even?0:((W-marginX*2)/pegCols)/2;
-    const span=(W-marginX*2)-(even?0:(W-marginX*2)/pegCols);
-    for(let i=0;i<n;i++) pegs.push({x:marginX+offset+(i+0.5)*span/n, y});
-  }
 
   const targetX=marginX+(pocketIndex+0.5)*pocketW;
   const nearLines=["almost…","come on…","drift…","hold…","so close…","stay…"];
@@ -980,39 +1041,7 @@ function runPlinko(drop){
 
   function draw(){
     tick++;
-    pctx.clearRect(0,0,W,H);
-    pctx.fillStyle="#fff"; pctx.fillRect(0,0,W,H);
-    pctx.strokeStyle="#f3f3f3"; pctx.lineWidth=1; pctx.beginPath();
-    for(let x=0;x<=W;x+=CELL){ pctx.moveTo(x+.5,0); pctx.lineTo(x+.5,H); }
-    for(let y=0;y<=H;y+=CELL){ pctx.moveTo(0,y+.5); pctx.lineTo(W,y+.5); }
-    pctx.stroke();
-
-    for(const p of pegs) px(p.x, p.y, "#0A0A0A", Math.max(3, CELL-4));
-
-    for(let i=0;i<nPockets;i++){
-      const x0=marginX+i*pocketW;
-      const x1=marginX+(i+1)*pocketW;
-      const active=settled&&i===pocketIndex;
-      const col=POCKETS[i].col;
-      /* flush buckets: assign every grid cell by center — no side gaps */
-      const c0=Math.floor(x0/CELL), c1=Math.floor((x1-0.001)/CELL);
-      for(let yy=0;yy<36;yy+=CELL){
-        for(let c=c0;c<=c1;c++){
-          pctx.fillStyle=active?result.col:"#f0f0f0";
-          pctx.globalAlpha=active?0.88:1;
-          pctx.fillRect(c*CELL, Math.round((boardBot+yy)/CELL)*CELL, CELL-1, CELL-1);
-        }
-      }
-      pctx.globalAlpha=1;
-      pctx.fillStyle="#0A0A0A";
-      pctx.font='500 10px "Sneak",sans-serif';
-      pctx.textAlign="center";
-      pctx.fillText(POCKETS[i].mult+"×", (x0+x1)/2, boardBot+24);
-      pctx.fillStyle=col;
-      pctx.globalAlpha=active?1:0.85;
-      pctx.fillRect(Math.round(((x0+x1)/2-4)/CELL)*CELL, Math.round((boardBot+30)/CELL)*CELL, CELL-1, CELL-1);
-      pctx.globalAlpha=1;
-    }
+    drawPlinkoField(board, settled?pocketIndex:null);
 
     for(let i=0;i<ball.trail.length;i++){
       const tr=ball.trail[i];
@@ -1092,31 +1121,27 @@ function runPlinko(drop){
   pkAnim=requestAnimationFrame(step);
 }
 
-function scrollOddsNearBottom(e){
-  if(e) e.preventDefault();
-  const el=document.getElementById("odds");
-  if(!el) return;
-  const pad=36;
-  const top=el.getBoundingClientRect().top+scrollY;
-  const y=top+el.offsetHeight+pad-innerHeight;
-  scrollTo({top:Math.max(0,y), behavior:"smooth"});
-}
-document.querySelectorAll("[data-scroll-odds]").forEach(a=>{
-  a.addEventListener("click", scrollOddsNearBottom);
-});
-
 // swap click handled by React
 function closePlinko(){
-  plinkoEl.classList.remove("on");
-  plinkoBox.classList.remove("is-wait");
-  pkPhase.classList.remove("wait");
+  bindPlinkoDom();
+  if(plinkoEl) plinkoEl.classList.remove("on");
+  if(plinkoBox) plinkoBox.classList.remove("is-wait");
+  if(pkPhase) pkPhase.classList.remove("wait");
   clearJackHit();
   cancelAnimationFrame(pkAnim);
   window.dispatchEvent(new CustomEvent("hooked:plinko-closed"));
 }
-pkClose.addEventListener("click", closePlinko);
-plinkoEl.addEventListener("click",e=>{ if(e.target===plinkoEl) closePlinko(); });
-addEventListener("keydown",e=>{ if(e.key==="Escape"&&plinkoEl.classList.contains("on")) closePlinko(); });
+document.addEventListener("click",e=>{
+  const t=e.target;
+  if(!(t instanceof Element)) return;
+  if(t.closest("#pkClose")) closePlinko();
+  else if(t.id==="plinko") closePlinko();
+});
+addEventListener("keydown",e=>{
+  if(e.key!=="Escape") return;
+  const el=document.getElementById("plinko");
+  if(el&&el.classList.contains("on")) closePlinko();
+});
 
 /* ===== JACKPOT FULLSCREEN REVEAL ===== */
 (function(){

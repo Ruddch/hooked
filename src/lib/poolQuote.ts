@@ -25,6 +25,10 @@ export function sqrtPriceX96FromSlot0(word: Hex): bigint {
   return BigInt(word) & ((1n << 160n) - 1n)
 }
 
+function ceilDiv(a: bigint, b: bigint) {
+  return b === 0n ? 0n : (a + b - 1n) / b
+}
+
 /** Spot exact-in quote. Buy: USDG→Main (zeroForOne). Sell: Main→USDG. Net after hook output fee. */
 export function quoteExactIn(amountIn: bigint, sqrtPriceX96: bigint, zeroForOne: boolean) {
   if (amountIn <= 0n || sqrtPriceX96 === 0n) return { gross: 0n, net: 0n }
@@ -35,4 +39,17 @@ export function quoteExactIn(amountIn: bigint, sqrtPriceX96: bigint, zeroForOne:
   const fee = zeroForOne ? BUY_FEE_BPS : SELL_FEE_BPS
   const net = gross - (gross * fee) / BPS
   return { gross, net }
+}
+
+/** Invert `quoteExactIn`: amount in needed so net out is at least `amountOut`. */
+export function quoteExactOut(amountOut: bigint, sqrtPriceX96: bigint, zeroForOne: boolean) {
+  if (amountOut <= 0n || sqrtPriceX96 === 0n) return { amountIn: 0n, gross: 0n }
+  const p = sqrtPriceX96
+  const fee = zeroForOne ? BUY_FEE_BPS : SELL_FEE_BPS
+  const netBps = BPS - fee
+  const gross = ceilDiv(amountOut * BPS, netBps)
+  const amountIn = zeroForOne
+    ? ceilDiv(ceilDiv(gross * Q96, p) * Q96, p)
+    : ceilDiv(ceilDiv(gross * p, Q96) * p, Q96)
+  return { amountIn, gross }
 }

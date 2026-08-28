@@ -42,7 +42,7 @@ export function HomePage() {
           <section className="ed" id="how">
             <div className="wrap">
               <div>
-                <h2 data-blobarrow>Loot is the swap.</h2>
+                <h2 id="loot" data-blobarrow>Loot is the swap.</h2>
                 <p className="kick mono">How it works</p>
               </div>
               <div>
