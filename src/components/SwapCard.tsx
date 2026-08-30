@@ -12,7 +12,7 @@ import { erc20Abi } from '../abi/erc20'
 import { hookedV1Abi, poolSwapTestAbi } from '../abi/hooked'
 import { robinhood } from '../chain'
 import { contracts, tokenMeta } from '../config'
-import { closeLootDrop, startLootDrop, startLootWaiting } from '../fx/homeFx'
+import { closeLootDrop, setLootWaitingPhase, startLootDrop, startLootWaiting } from '../fx/homeFx'
 import {
   LootTimeoutError,
   parseBuyTicketFromReceipt,
@@ -357,7 +357,8 @@ export function SwapCard() {
 
         setBusyLoot(true)
         setSettling(true)
-        startLootWaiting()
+        const waitRound = ticket.targetDrandRound > 0n ? Number(ticket.targetDrandRound) : undefined
+        startLootWaiting({ targetRound: waitRound })
         const ac = new AbortController()
         const onClosed = () => ac.abort()
         window.addEventListener('hooked:plinko-closed', onClosed)
@@ -366,7 +367,15 @@ export function SwapCard() {
             client: publicClient,
             buyId: ticket.buyId,
             fromBlock: swapped.blockNumber,
+            targetDrandRound: ticket.targetDrandRound,
             signal: ac.signal,
+            onPhase: (phase) => {
+              setLootWaitingPhase({
+                targetRound: phase.targetRound > 0n ? Number(phase.targetRound) : waitRound,
+                ready: phase.ready,
+                settlerStuck: phase.settlerStuck,
+              })
+            },
           })
           if (ac.signal.aborted) {
             setBusyLoot(false)

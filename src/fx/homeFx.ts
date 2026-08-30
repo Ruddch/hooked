@@ -12,7 +12,8 @@ declare global {
     __hideJackReveal?: () => void;
     __setJackRevealTarget?: (n: number) => void;
     __startLootDrop?: (drop: { pocketIndex: number; hookedOut: number; jackpot: boolean; jackpotUsd?: number }) => void;
-    __startLootWaiting?: () => void;
+    __startLootWaiting?: (info?: { targetRound?: number; ready?: boolean; settlerStuck?: boolean }) => void;
+    __setLootWaitingPhase?: (info: { targetRound?: number; ready?: boolean; settlerStuck?: boolean }) => void;
     __closePlinko?: () => void;
   }
 }
@@ -747,6 +748,7 @@ function bindPlinkoDom(){
 if(!bindPlinkoDom()) {
   window.__startLootDrop = function(){};
   window.__startLootWaiting = function(){};
+  window.__setLootWaitingPhase = function(){};
   window.__closePlinko = function(){};
 } else {
 
@@ -840,12 +842,25 @@ function drawPlinkoField(board, activeIndex){
   }
 }
 
-function showPlinkoWaiting(){
+function lootWaitLive(info){
+  const round=info&&info.targetRound>0?Math.floor(info.targetRound):0;
+  if(info&&info.settlerStuck) return "waiting for settler…";
+  if(info&&info.ready) return "oracle ready…";
+  if(round) return `waiting for oracle round ${round}…`;
+  return "waiting for oracle…";
+}
+
+function showPlinkoWaiting(info){
   cancelAnimationFrame(pkAnim);
-  resetPlinkoUi("settling on-chain…","waiting for keeper…", true);
+  resetPlinkoUi("settling on-chain…", lootWaitLive(info), true);
   if(!bindPlinkoDom()) return;
   const {W, H}=sizePlinkoCanvas();
   drawPlinkoField(layoutPlinkoBoard(W, H), null);
+}
+
+function setPlinkoWaitingPhase(info){
+  if(!bindPlinkoDom()||!plinkoEl.classList.contains("on")||!plinkoBox.classList.contains("is-wait")) return;
+  plinkoLive.textContent=lootWaitLive(info);
 }
 
 function runPlinko(drop){
@@ -1229,6 +1244,7 @@ addEventListener("keydown",e=>{
 
 
   window.__startLootWaiting = showPlinkoWaiting;
+  window.__setLootWaitingPhase = setPlinkoWaitingPhase;
   window.__startLootDrop = function(drop){
     runPlinko(drop);
   };
@@ -1236,8 +1252,14 @@ addEventListener("keydown",e=>{
   }
 }
 
-export function startLootWaiting(){
-  window.__startLootWaiting?.();
+export type LootWaitInfo = { targetRound?: number; ready?: boolean; settlerStuck?: boolean }
+
+export function startLootWaiting(info?: LootWaitInfo){
+  window.__startLootWaiting?.(info);
+}
+
+export function setLootWaitingPhase(info: LootWaitInfo){
+  window.__setLootWaitingPhase?.(info);
 }
 
 export function startLootDrop(drop: { pocketIndex: number; hookedOut: number; jackpot: boolean; jackpotUsd?: number }){

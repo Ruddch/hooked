@@ -68,6 +68,34 @@ export const jackpotPoolAbi = [
     outputs: [{ name: '', type: 'uint256' }],
   },
   {
+    type: 'function',
+    name: 'drandOracle',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'pendingLength',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'getPendingBuyIds',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256[]' }],
+  },
+  {
+    type: 'function',
+    name: 'isReadyToSettle',
+    stateMutability: 'view',
+    inputs: [{ name: 'buyId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
     type: 'event',
     name: 'JackpotHit',
     inputs: [
@@ -89,9 +117,29 @@ export const jackpotPoolAbi = [
       { name: 'roll', type: 'uint256', indexed: false },
     ],
   },
+  {
+    type: 'event',
+    name: 'TicketSettled',
+    inputs: [
+      { name: 'buyId', type: 'uint256', indexed: true },
+      { name: 'recipient', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'TicketNotEligible',
+    inputs: [{ name: 'buyId', type: 'uint256', indexed: true }],
+  },
 ] as const
 
 export const rewardsCollectorAbi = [
+  {
+    type: 'function',
+    name: 'rewardsTargetDrandRound',
+    stateMutability: 'view',
+    inputs: [{ name: 'buyId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint64' }],
+  },
   {
     type: 'event',
     name: 'RewardsSettled',
@@ -112,6 +160,7 @@ export const rewardsCollectorAbi = [
       { name: 'listingId', type: 'uint256', indexed: true },
       { name: 'mainToken', type: 'address', indexed: false },
       { name: 'mainAmountOut', type: 'uint256', indexed: false },
+      { name: 'targetDrandRound', type: 'uint64', indexed: false },
     ],
   },
   {

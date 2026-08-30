@@ -20,6 +20,8 @@ const TIER_WADS = [
 
 export const LOOT_SETTLE_TIMEOUT_MS = 180_000
 export const LOOT_SETTLE_POLL_MS = 1_600
+/** After the oracle round is live this long, UI switches to settler copy. */
+export const LOOT_SETTLER_HINT_MS = 30_000
 
 export class LootTimeoutError extends Error {
   constructor() {
@@ -36,6 +38,7 @@ export type BuyTicket =
       buyId: bigint
       mainAmountOut: bigint
       feeMainTaken: bigint
+      targetDrandRound: bigint
     }
 
 export type LootSettle = {
@@ -52,6 +55,12 @@ export type LootDrop = {
   hookedOut: number
   jackpot: boolean
   jackpotUsd: number
+}
+
+export type LootWaitPhase = {
+  targetRound: bigint
+  ready: boolean
+  settlerStuck: boolean
 }
 
 export function pocketIndexFromWad(wad: bigint): number {
@@ -86,6 +95,7 @@ export function parseBuyTicket(logs: Log[]): BuyTicket {
       buyId: opened[0].args.buyId,
       mainAmountOut: buy?.args.mainAmountOut ?? opened[0].args.mainAmountOut ?? 0n,
       feeMainTaken: buy?.args.feeMainTaken ?? 0n,
+      targetDrandRound: opened[0].args.targetDrandRound ?? 0n,
     }
   }
 
@@ -162,17 +172,77 @@ async function settleFromRewardsLog(
   }
 }
 
+async function readTargetRound(client: PublicClient, buyId: bigint, fallback: bigint): Promise<bigint> {
+  if (fallback > 0n) return fallback
+  try {
+    return await client.readContract({
+      address: contracts.rewards,
+      abi: rewardsCollectorAbi,
+      functionName: 'rewardsTargetDrandRound',
+      args: [buyId],
+    })
+  } catch {
+    return fallback
+  }
+}
+
+async function readReady(client: PublicClient, buyId: bigint): Promise<boolean> {
+  try {
+    return await client.readContract({
+      address: contracts.jackpot,
+      abi: jackpotPoolAbi,
+      functionName: 'isReadyToSettle',
+      args: [buyId],
+    })
+  } catch {
+    return false
+  }
+}
+
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const t = window.setTimeout(resolve, ms)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        window.clearTimeout(t)
+        reject(new DOMException('Aborted', 'AbortError'))
+      },
+      { once: true },
+    )
+  })
+}
+
 export async function waitForLootSettle(opts: {
   client: PublicClient
   buyId: bigint
   fromBlock: bigint
+  targetDrandRound?: bigint
   signal?: AbortSignal
   timeoutMs?: number
   intervalMs?: number
+  onPhase?: (phase: LootWaitPhase) => void
 }): Promise<LootSettle> {
   const timeoutMs = opts.timeoutMs ?? LOOT_SETTLE_TIMEOUT_MS
   const intervalMs = opts.intervalMs ?? LOOT_SETTLE_POLL_MS
   const deadline = Date.now() + timeoutMs
+  let targetRound = opts.targetDrandRound ?? 0n
+  let readySince: number | null = null
+
+  const emitPhase = (ready: boolean) => {
+    if (!opts.onPhase) return
+    opts.onPhase({
+      targetRound,
+      ready,
+      settlerStuck: ready && readySince != null && Date.now() - readySince >= LOOT_SETTLER_HINT_MS,
+    })
+  }
+
+  emitPhase(false)
 
   while (true) {
     if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -196,21 +266,20 @@ export async function waitForLootSettle(opts: {
       /* RPC blip — retry until timeout */
     }
 
-    const wait = Math.max(200, Math.min(intervalMs, deadline - Date.now()))
-    await new Promise<void>((resolve, reject) => {
-      if (opts.signal?.aborted) {
-        reject(new DOMException('Aborted', 'AbortError'))
-        return
+    try {
+      targetRound = await readTargetRound(opts.client, opts.buyId, targetRound)
+      const ready = await readReady(opts.client, opts.buyId)
+      if (ready) {
+        if (readySince == null) readySince = Date.now()
+      } else {
+        readySince = null
       }
-      const t = window.setTimeout(resolve, wait)
-      opts.signal?.addEventListener(
-        'abort',
-        () => {
-          window.clearTimeout(t)
-          reject(new DOMException('Aborted', 'AbortError'))
-        },
-        { once: true },
-      )
-    })
+      emitPhase(ready)
+    } catch {
+      /* view blip — keep waiting on events */
+    }
+
+    const wait = Math.max(200, Math.min(intervalMs, deadline - Date.now()))
+    await sleep(wait, opts.signal)
   }
 }
