@@ -336,13 +336,8 @@ export function SwapCard() {
       }
       const left = (balance.data ?? 0n) > amountIn ? (balance.data ?? 0n) - amountIn : 0n
       applyPayBalance(left)
-      if (side === 'sell') {
-        setHookedAmount(left > 0n ? trimUnits(formatUnits(left, tokenMeta.mainDecimals)) : '')
-        setLastEdited('hooked')
-      } else {
-        setUsdgAmount(left > 0n ? formatInputAmount(left, tokenMeta.usdgDecimals, 6) : '')
-        setLastEdited('usdg')
-      }
+      setUsdgAmount('')
+      setHookedAmount('')
       void refreshPayBalance(swapped.blockNumber ?? undefined)
       void allowance.refetch()
       if (zeroForOne) {
