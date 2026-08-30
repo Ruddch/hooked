@@ -1,5 +1,6 @@
 import {
   formatUnits,
+  parseAbiItem,
   parseEventLogs,
   type Hex,
   type Log,
@@ -22,6 +23,11 @@ export const LOOT_SETTLE_TIMEOUT_MS = 180_000
 export const LOOT_SETTLE_POLL_MS = 1_600
 /** After the oracle round is live this long, UI switches to settler copy. */
 export const LOOT_SETTLER_HINT_MS = 30_000
+const MIN_BUY_USDG = 1_000_000n
+
+const ticketOpenedLegacy = parseAbiItem(
+  'event TicketOpened(uint256 indexed buyId, uint256 indexed listingId, address mainToken, uint256 mainAmountOut)',
+)
 
 export class LootTimeoutError extends Error {
   constructor() {
@@ -77,26 +83,53 @@ export function pocketIndexFromWad(wad: bigint): number {
   return best
 }
 
+function buyFeeLogs(logs: Log[]) {
+  return parseEventLogs({
+    abi: hookedV1Abi,
+    logs,
+    eventName: 'BuyFeeRecorded',
+  })
+}
+
+function openFromBuy(
+  buyId: bigint,
+  mainAmountOut: bigint,
+  feeMainTaken: bigint,
+  targetDrandRound: bigint,
+): Extract<BuyTicket, { kind: 'open' }> {
+  return { kind: 'open', buyId, mainAmountOut, feeMainTaken, targetDrandRound }
+}
+
 export function parseBuyTicket(logs: Log[]): BuyTicket {
+  const buys = buyFeeLogs(logs)
   const opened = parseEventLogs({
     abi: rewardsCollectorAbi,
     logs,
     eventName: 'TicketOpened',
   })
   if (opened[0]?.args.buyId != null) {
-    const buys = parseEventLogs({
-      abi: hookedV1Abi,
-      logs,
-      eventName: 'BuyFeeRecorded',
-    })
     const buy = buys.find((l) => l.args.buyId === opened[0].args.buyId) ?? buys[0]
-    return {
-      kind: 'open',
-      buyId: opened[0].args.buyId,
-      mainAmountOut: buy?.args.mainAmountOut ?? opened[0].args.mainAmountOut ?? 0n,
-      feeMainTaken: buy?.args.feeMainTaken ?? 0n,
-      targetDrandRound: opened[0].args.targetDrandRound ?? 0n,
-    }
+    return openFromBuy(
+      opened[0].args.buyId,
+      buy?.args.mainAmountOut ?? opened[0].args.mainAmountOut ?? 0n,
+      buy?.args.feeMainTaken ?? 0n,
+      opened[0].args.targetDrandRound ?? 0n,
+    )
+  }
+
+  const legacy = parseEventLogs({
+    abi: [ticketOpenedLegacy],
+    logs,
+    eventName: 'TicketOpened',
+  })
+  if (legacy[0]?.args.buyId != null) {
+    const buy = buys.find((l) => l.args.buyId === legacy[0].args.buyId) ?? buys[0]
+    return openFromBuy(
+      legacy[0].args.buyId,
+      buy?.args.mainAmountOut ?? legacy[0].args.mainAmountOut ?? 0n,
+      buy?.args.feeMainTaken ?? 0n,
+      0n,
+    )
   }
 
   const skipped = parseEventLogs({
@@ -108,11 +141,79 @@ export function parseBuyTicket(logs: Log[]): BuyTicket {
     return { kind: 'skipped', buyId: skipped[0].args.buyId }
   }
 
+  const buy = buys[0]
+  if (buy?.args.buyId != null) {
+    if ((buy.args.quoteAmountIn ?? 0n) < MIN_BUY_USDG) {
+      return { kind: 'skipped', buyId: buy.args.buyId }
+    }
+    return openFromBuy(buy.args.buyId, buy.args.mainAmountOut ?? 0n, buy.args.feeMainTaken ?? 0n, 0n)
+  }
+
   return { kind: 'none' }
 }
 
 export function parseBuyTicketFromReceipt(receipt: TransactionReceipt): BuyTicket {
   return parseBuyTicket(receipt.logs)
+}
+
+function sameTx(hash: Hex | null | undefined, tx: Hex) {
+  return hash != null && hash.toLowerCase() === tx.toLowerCase()
+}
+
+/** Re-read hook/rewards logs if the swap receipt omitted them. */
+export async function recoverBuyTicket(client: PublicClient, receipt: TransactionReceipt): Promise<BuyTicket> {
+  const first = parseBuyTicketFromReceipt(receipt)
+  if (first.kind !== 'none') return first
+  if (receipt.blockNumber == null) return first
+
+  try {
+    const [opened, skipped, buys] = await Promise.all([
+      client.getContractEvents({
+        address: contracts.rewards,
+        abi: rewardsCollectorAbi,
+        eventName: 'TicketOpened',
+        fromBlock: receipt.blockNumber,
+        toBlock: receipt.blockNumber,
+      }),
+      client.getContractEvents({
+        address: contracts.rewards,
+        abi: rewardsCollectorAbi,
+        eventName: 'TicketSkipped',
+        fromBlock: receipt.blockNumber,
+        toBlock: receipt.blockNumber,
+      }),
+      client.getContractEvents({
+        address: contracts.hook,
+        abi: hookedV1Abi,
+        eventName: 'BuyFeeRecorded',
+        fromBlock: receipt.blockNumber,
+        toBlock: receipt.blockNumber,
+      }),
+    ])
+    const tx = receipt.transactionHash
+    const open = opened.find((l) => sameTx(l.transactionHash, tx))
+    if (open?.args.buyId != null) {
+      const buy = buys.find((l) => sameTx(l.transactionHash, tx) && l.args.buyId === open.args.buyId) ?? buys.find((l) => sameTx(l.transactionHash, tx))
+      return openFromBuy(
+        open.args.buyId,
+        buy?.args.mainAmountOut ?? open.args.mainAmountOut ?? 0n,
+        buy?.args.feeMainTaken ?? 0n,
+        open.args.targetDrandRound ?? 0n,
+      )
+    }
+    const skip = skipped.find((l) => sameTx(l.transactionHash, tx))
+    if (skip?.args.buyId != null) return { kind: 'skipped', buyId: skip.args.buyId }
+    const buy = buys.find((l) => sameTx(l.transactionHash, tx))
+    if (buy?.args.buyId != null) {
+      if ((buy.args.quoteAmountIn ?? 0n) < MIN_BUY_USDG) {
+        return { kind: 'skipped', buyId: buy.args.buyId }
+      }
+      return openFromBuy(buy.args.buyId, buy.args.mainAmountOut ?? 0n, buy.args.feeMainTaken ?? 0n, 0n)
+    }
+  } catch {
+    /* RPC blip — keep first parse */
+  }
+  return first
 }
 
 export function toLootDrop(ticket: Extract<BuyTicket, { kind: 'open' }>, settle: LootSettle): LootDrop {

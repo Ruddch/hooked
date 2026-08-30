@@ -16,6 +16,7 @@ import { closeLootDrop, setLootWaitingPhase, startLootDrop, startLootWaiting } f
 import {
   LootTimeoutError,
   parseBuyTicketFromReceipt,
+  recoverBuyTicket,
   toLootDrop,
   waitForLootSettle,
 } from '../lib/lootSettle'
@@ -344,13 +345,28 @@ export function SwapCard() {
       void refreshPayBalance(swapped.blockNumber ?? undefined)
       void allowance.refetch()
       if (zeroForOne) {
-        const ticket = parseBuyTicketFromReceipt(swapped)
         if (!address || swapped.blockNumber == null) return
+        const likelyOpen = parsed != null && parsed >= 1_000_000n
+        if (likelyOpen) {
+          setBusyLoot(true)
+          setSettling(true)
+          startLootWaiting()
+        }
+        let ticket = parseBuyTicketFromReceipt(swapped)
+        if (ticket.kind === 'none') {
+          ticket = await recoverBuyTicket(publicClient, swapped)
+        }
         if (ticket.kind === 'skipped') {
+          closeLootDrop()
+          setBusyLoot(false)
+          setSettling(false)
           setLocalErr('Buy under 1 USDG skips the loot roll. Fee still goes to the pool.')
           return
         }
         if (ticket.kind !== 'open') {
+          closeLootDrop()
+          setBusyLoot(false)
+          setSettling(false)
           setLocalErr('Swap landed, but no loot ticket opened')
           return
         }
