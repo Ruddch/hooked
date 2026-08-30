@@ -9,11 +9,12 @@ import {
   useWriteContract,
 } from 'wagmi'
 import { erc20Abi } from '../abi/erc20'
-import { hookedV1Abi, poolSwapTestAbi } from '../abi/hooked'
+import { hookedV1Abi, jackpotPoolAbi, poolSwapTestAbi } from '../abi/hooked'
 import { robinhood } from '../chain'
 import { contracts, tokenMeta } from '../config'
 import { closeLootDrop, setLootWaitingPhase, startLootDrop, startLootWaiting } from '../fx/homeFx'
 import {
+  fetchDrandSignature,
   LootTimeoutError,
   parseBuyTicketFromReceipt,
   recoverBuyTicket,
@@ -389,8 +390,26 @@ export function SwapCard() {
               setLootWaitingPhase({
                 targetRound: phase.targetRound > 0n ? Number(phase.targetRound) : waitRound,
                 ready: phase.ready,
-                settlerStuck: phase.settlerStuck,
+                confirming: phase.confirming,
               })
+            },
+            submitSettle: async ({ buyId, round }) => {
+              const signature = await fetchDrandSignature(round)
+              try {
+                const hash = await writeContractAsync({
+                  address: contracts.jackpot,
+                  abi: jackpotPoolAbi,
+                  functionName: 'settleWithDrand',
+                  args: [buyId, round, signature],
+                })
+                return await publicClient.waitForTransactionReceipt({ hash })
+              } catch (e) {
+                const rejected =
+                  e instanceof UserRejectedRequestError ||
+                  (e instanceof Error && /user rejected|denied|rejected the request/i.test(e.message))
+                if (rejected) return null
+                throw e
+              }
             },
           })
           if (ac.signal.aborted) {

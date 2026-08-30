@@ -36,7 +36,15 @@ interface Window {
     jackpot: boolean
     jackpotUsd?: number
   }) => void
-  __startLootWaiting?: (info?: { targetRound?: number; ready?: boolean; settlerStuck?: boolean }) => void
-  __setLootWaitingPhase?: (info: { targetRound?: number; ready?: boolean; settlerStuck?: boolean }) => void
+  __startLootWaiting?: (info?: {
+    targetRound?: number
+    ready?: boolean
+    confirming?: boolean
+  }) => void
+  __setLootWaitingPhase?: (info: {
+    targetRound?: number
+    ready?: boolean
+    confirming?: boolean
+  }) => void
   __closePlinko?: () => void
 }

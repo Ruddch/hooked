@@ -96,6 +96,17 @@ export const jackpotPoolAbi = [
     outputs: [{ name: '', type: 'bool' }],
   },
   {
+    type: 'function',
+    name: 'settleWithDrand',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'buyId', type: 'uint256' },
+      { name: 'round', type: 'uint64' },
+      { name: 'signature', type: 'bytes' },
+    ],
+    outputs: [],
+  },
+  {
     type: 'event',
     name: 'JackpotHit',
     inputs: [

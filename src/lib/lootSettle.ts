@@ -21,9 +21,11 @@ const TIER_WADS = [
 
 export const LOOT_SETTLE_TIMEOUT_MS = 180_000
 export const LOOT_SETTLE_POLL_MS = 1_600
-/** After the oracle round is live this long, UI switches to settler copy. */
-export const LOOT_SETTLER_HINT_MS = 30_000
+/** Wait for the keeper after the oracle round is live, then ask the user to settle. */
+export const LOOT_KEEPER_GRACE_MS = 20_000
 const MIN_BUY_USDG = 1_000_000n
+const QUICKNET_GENESIS = 1_692_803_367
+const QUICKNET_PERIOD = 3
 
 const ticketOpenedLegacy = parseAbiItem(
   'event TicketOpened(uint256 indexed buyId, uint256 indexed listingId, address mainToken, uint256 mainAmountOut)',
@@ -66,7 +68,37 @@ export type LootDrop = {
 export type LootWaitPhase = {
   targetRound: bigint
   ready: boolean
-  settlerStuck: boolean
+  confirming?: boolean
+}
+
+const DRAND_CHAIN = '52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971'
+const DRAND_URLS = [
+  `https://api.drand.sh/v2/chains/${DRAND_CHAIN}/rounds/`,
+  `https://api.drand.sh/${DRAND_CHAIN}/public/`,
+  `https://drand.cloudflare.com/${DRAND_CHAIN}/public/`,
+]
+
+export function currentDrandRound(ts = Math.floor(Date.now() / 1000)): bigint {
+  if (ts < QUICKNET_GENESIS) return 0n
+  return BigInt(Math.floor((ts - QUICKNET_GENESIS) / QUICKNET_PERIOD) + 1)
+}
+
+export async function fetchDrandSignature(round: bigint): Promise<Hex> {
+  const n = round.toString()
+  let lastErr: unknown
+  for (const base of DRAND_URLS) {
+    try {
+      const res = await fetch(`${base}${n}`, { headers: { accept: 'application/json' } })
+      if (!res.ok) throw new Error(`drand HTTP ${res.status}`)
+      const body = (await res.json()) as { signature?: string }
+      const sig = body.signature
+      if (!sig) throw new Error('drand response missing signature')
+      return (sig.startsWith('0x') ? sig : `0x${sig}`) as Hex
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('drand signature fetch failed')
 }
 
 export function pocketIndexFromWad(wad: bigint): number {
@@ -232,6 +264,35 @@ function sameId(a: bigint | undefined, b: bigint) {
   return a != null && a === b
 }
 
+function lootFromSettleLogs(
+  buyId: bigint,
+  logs: Log[],
+  tx?: Hex | null,
+): LootSettle | null {
+  const settled = parseEventLogs({
+    abi: rewardsCollectorAbi,
+    logs,
+    eventName: 'RewardsSettled',
+  })
+  const match = settled.find((l) => sameId(l.args.buyId, buyId)) ?? settled[0]
+  if (!sameId(match?.args.buyId, buyId) || match.args.multiplierWad == null) return null
+
+  const hits = parseEventLogs({
+    abi: jackpotPoolAbi,
+    logs,
+    eventName: 'JackpotHit',
+  })
+  const hit = hits.find((l) => sameId(l.args.buyId, buyId))
+  return {
+    multiplierWad: match.args.multiplierWad,
+    bonusPaid: match.args.bonusPaid ?? 0n,
+    jackpot: Boolean(hit),
+    jackpotPayout: hit?.args.payout ?? 0n,
+    jackpotTarget: hit?.args.target ?? 0n,
+    settleTx: match.transactionHash ?? tx ?? undefined,
+  }
+}
+
 async function settleFromRewardsLog(
   client: PublicClient,
   buyId: bigint,
@@ -326,21 +387,20 @@ export async function waitForLootSettle(opts: {
   signal?: AbortSignal
   timeoutMs?: number
   intervalMs?: number
+  keeperGraceMs?: number
   onPhase?: (phase: LootWaitPhase) => void
+  submitSettle: (args: { buyId: bigint; round: bigint }) => Promise<TransactionReceipt | null>
 }): Promise<LootSettle> {
   const timeoutMs = opts.timeoutMs ?? LOOT_SETTLE_TIMEOUT_MS
   const intervalMs = opts.intervalMs ?? LOOT_SETTLE_POLL_MS
+  const keeperGraceMs = opts.keeperGraceMs ?? LOOT_KEEPER_GRACE_MS
   const deadline = Date.now() + timeoutMs
   let targetRound = opts.targetDrandRound ?? 0n
   let readySince: number | null = null
+  let nextSelfSettle = Number.POSITIVE_INFINITY
 
-  const emitPhase = (ready: boolean) => {
-    if (!opts.onPhase) return
-    opts.onPhase({
-      targetRound,
-      ready,
-      settlerStuck: ready && readySince != null && Date.now() - readySince >= LOOT_SETTLER_HINT_MS,
-    })
+  const emitPhase = (ready: boolean, confirming = false) => {
+    opts.onPhase?.({ targetRound, ready, confirming })
   }
 
   emitPhase(false)
@@ -367,17 +427,34 @@ export async function waitForLootSettle(opts: {
       /* RPC blip — retry until timeout */
     }
 
-    try {
-      targetRound = await readTargetRound(opts.client, opts.buyId, targetRound)
-      const ready = await readReady(opts.client, opts.buyId)
-      if (ready) {
-        if (readySince == null) readySince = Date.now()
-      } else {
-        readySince = null
+    targetRound = await readTargetRound(opts.client, opts.buyId, targetRound)
+    const readyOnchain = targetRound > 0n ? await readReady(opts.client, opts.buyId) : false
+    const ready = readyOnchain || (targetRound > 0n && currentDrandRound() >= targetRound)
+    if (ready) {
+      if (readySince == null) {
+        readySince = Date.now()
+        nextSelfSettle = readySince + keeperGraceMs
       }
-      emitPhase(ready)
-    } catch {
-      /* view blip — keep waiting on events */
+    } else {
+      readySince = null
+      nextSelfSettle = Number.POSITIVE_INFINITY
+    }
+    emitPhase(ready)
+
+    if (ready && targetRound > 0n && Date.now() >= nextSelfSettle) {
+      emitPhase(true, true)
+      try {
+        const receipt = await opts.submitSettle({ buyId: opts.buyId, round: targetRound })
+        if (receipt) {
+          const fromReceipt = lootFromSettleLogs(opts.buyId, receipt.logs, receipt.transactionHash)
+          if (fromReceipt) return fromReceipt
+        }
+        nextSelfSettle = Date.now() + keeperGraceMs
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') throw e
+        nextSelfSettle = Date.now() + 8_000
+      }
+      emitPhase(true, false)
     }
 
     const wait = Math.max(200, Math.min(intervalMs, deadline - Date.now()))

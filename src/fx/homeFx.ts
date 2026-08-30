@@ -12,8 +12,8 @@ declare global {
     __hideJackReveal?: () => void;
     __setJackRevealTarget?: (n: number) => void;
     __startLootDrop?: (drop: { pocketIndex: number; hookedOut: number; jackpot: boolean; jackpotUsd?: number }) => void;
-    __startLootWaiting?: (info?: { targetRound?: number; ready?: boolean; settlerStuck?: boolean }) => void;
-    __setLootWaitingPhase?: (info: { targetRound?: number; ready?: boolean; settlerStuck?: boolean }) => void;
+    __startLootWaiting?: (info?: { targetRound?: number; ready?: boolean; confirming?: boolean }) => void;
+    __setLootWaitingPhase?: (info: { targetRound?: number; ready?: boolean; confirming?: boolean }) => void;
     __closePlinko?: () => void;
   }
 }
@@ -844,8 +844,8 @@ function drawPlinkoField(board, activeIndex){
 
 function lootWaitLive(info){
   const round=info&&info.targetRound>0?Math.floor(info.targetRound):0;
-  if(info&&info.settlerStuck) return "waiting for settler…";
-  if(info&&info.ready) return "oracle ready…";
+  if(info&&info.confirming) return "confirm settle…";
+  if(info&&info.ready) return "waiting for settle…";
   if(round) return `waiting for oracle round ${round}…`;
   return "waiting for oracle…";
 }
@@ -1252,7 +1252,7 @@ addEventListener("keydown",e=>{
   }
 }
 
-export type LootWaitInfo = { targetRound?: number; ready?: boolean; settlerStuck?: boolean }
+export type LootWaitInfo = { targetRound?: number; ready?: boolean; confirming?: boolean }
 
 export function startLootWaiting(info?: LootWaitInfo){
   window.__startLootWaiting?.(info);
