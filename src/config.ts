@@ -13,26 +13,26 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-/** Defaults: HookedV1 listing 2 on Robinhood Chain. */
+/** Defaults: HookedV1 listing 4 on Robinhood Chain. */
 export const contracts = {
   hook: addr(import.meta.env.VITE_HOOK, '0x46C4455F65Da6d0E8Bb0274E257F99733ddE2544'),
   usdg: addr(import.meta.env.VITE_USDG, '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168'),
-  mainToken: addr(import.meta.env.VITE_MAIN_TOKEN, '0x97B78431DfaD2FceDB899B76382bFC5A0266C94C'),
+  mainToken: addr(import.meta.env.VITE_MAIN_TOKEN, '0xf15400E826435F1E1C0efAE5870bF85581D81AE0'),
   swapRouter: addr(import.meta.env.VITE_SWAP_ROUTER, '0xf9636e6D09a59e5E2E0ffcda1fe2Ba15a2BcdaDC'),
   poolManager: addr(import.meta.env.VITE_POOL_MANAGER, '0x8366a39CC670B4001A1121B8F6A443A643e40951'),
-  jackpot: addr(import.meta.env.VITE_JACKPOT, '0xFe3fD20842414Da5F1977a18267180F08C90f424'),
-  rewards: addr(import.meta.env.VITE_REWARDS, '0x6Ce2709ea3755902509EE21d735069477565FFdf'),
+  jackpot: addr(import.meta.env.VITE_JACKPOT, '0x359d01C07807c924c3ed69Fb37c53bC58bDfc2C4'),
+  rewards: addr(import.meta.env.VITE_REWARDS, '0xfE54472622ae58849388aE173993336a4D887239'),
   poolFee: num(import.meta.env.VITE_POOL_FEE, 3000),
   tickSpacing: num(import.meta.env.VITE_TICK_SPACING, 60),
-  listingId: BigInt(import.meta.env.VITE_LISTING_ID ?? '2'),
+  listingId: BigInt(import.meta.env.VITE_LISTING_ID ?? '4'),
   poolId: hex32(
     import.meta.env.VITE_POOL_ID,
-    '0x2be08c80a406981e8bba4ffb7156c09383177900f1dcad55bafeb473abef39da',
+    '0x16829659581976cd172c2ba63554329a6b3d0ddaae977af07cc1efea124a2ffa',
   ),
 } as const
 
-/** Pool Initialize for listing 2 — loot logs cannot exist before this. */
-export const winsFromBlock = BigInt(import.meta.env.VITE_WINS_FROM_BLOCK ?? '45116010')
+/** Pool Initialize for listing 4 — loot logs cannot exist before this. */
+export const winsFromBlock = BigInt(import.meta.env.VITE_WINS_FROM_BLOCK ?? '51223583')
 
 export const tokenMeta = {
   usdgDecimals: 6,
