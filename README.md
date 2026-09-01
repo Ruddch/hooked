@@ -21,7 +21,7 @@ The site URL is `https://<user>.github.io/<repo>/`. Vite sets `base` from the re
 
 ## Env
 
-Copy [.env.example](.env.example) for local `.env` (gitignored). GitHub Pages / `npm run build` read committed [.env.production](.env.production) — HookedV1 listing 4.
+Copy [.env.example](.env.example) for local `.env` (gitignored). GitHub Pages / `npm run build` read committed [.env.production](.env.production) — HookedV1 listing 5.
 
 Wallets: only browser extensions (MetaMask, Rabby, OKX, …). No WalletConnect project id.
 

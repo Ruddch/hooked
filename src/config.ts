@@ -13,26 +13,26 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-/** Defaults: HookedV1 listing 4 on Robinhood Chain. */
+/** Defaults: HookedV1 listing 5 on Robinhood Chain. */
 export const contracts = {
   hook: addr(import.meta.env.VITE_HOOK, '0x46C4455F65Da6d0E8Bb0274E257F99733ddE2544'),
   usdg: addr(import.meta.env.VITE_USDG, '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168'),
-  mainToken: addr(import.meta.env.VITE_MAIN_TOKEN, '0xf15400E826435F1E1C0efAE5870bF85581D81AE0'),
+  mainToken: addr(import.meta.env.VITE_MAIN_TOKEN, '0x66B99798eD319FE23a78B6399Baf03Ea521731E5'),
   swapRouter: addr(import.meta.env.VITE_SWAP_ROUTER, '0xf9636e6D09a59e5E2E0ffcda1fe2Ba15a2BcdaDC'),
   poolManager: addr(import.meta.env.VITE_POOL_MANAGER, '0x8366a39CC670B4001A1121B8F6A443A643e40951'),
-  jackpot: addr(import.meta.env.VITE_JACKPOT, '0x359d01C07807c924c3ed69Fb37c53bC58bDfc2C4'),
-  rewards: addr(import.meta.env.VITE_REWARDS, '0xfE54472622ae58849388aE173993336a4D887239'),
+  jackpot: addr(import.meta.env.VITE_JACKPOT, '0xA34259665e9D08FF18c1Cf38385dEDc18b3afa2F'),
+  rewards: addr(import.meta.env.VITE_REWARDS, '0x2124f813732eef33F5dE208Ec6a3D76c2F04f41D'),
   poolFee: num(import.meta.env.VITE_POOL_FEE, 3000),
   tickSpacing: num(import.meta.env.VITE_TICK_SPACING, 60),
-  listingId: BigInt(import.meta.env.VITE_LISTING_ID ?? '4'),
+  listingId: BigInt(import.meta.env.VITE_LISTING_ID ?? '5'),
   poolId: hex32(
     import.meta.env.VITE_POOL_ID,
-    '0x16829659581976cd172c2ba63554329a6b3d0ddaae977af07cc1efea124a2ffa',
+    '0xdd2bf4f6b6e46f7ae5ea88876d006ecf54e35f9a8e09d605b95a0478bf15df27',
   ),
 } as const
 
-/** Pool Initialize for listing 4 — loot logs cannot exist before this. */
-export const winsFromBlock = BigInt(import.meta.env.VITE_WINS_FROM_BLOCK ?? '51223583')
+/** Listing 5 deploy — loot logs cannot exist before this. */
+export const winsFromBlock = BigInt(import.meta.env.VITE_WINS_FROM_BLOCK ?? '52127150')
 
 export const tokenMeta = {
   usdgDecimals: 6,
