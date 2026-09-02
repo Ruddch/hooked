@@ -76,24 +76,33 @@ export const jackpotPoolAbi = [
   },
   {
     type: 'function',
-    name: 'pendingLength',
+    name: 'resolvableUpperBound',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
   {
     type: 'function',
-    name: 'getPendingBuyIds',
+    name: 'getResolvableFor',
     stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256[]' }],
-  },
-  {
-    type: 'function',
-    name: 'isReadyToSettle',
-    stateMutability: 'view',
-    inputs: [{ name: 'buyId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'bool' }],
+    inputs: [
+      { name: 'buyer', type: 'address' },
+      { name: 'fromId', type: 'uint256' },
+      { name: 'limit', type: 'uint256' },
+    ],
+    outputs: [
+      {
+        name: 'tickets',
+        type: 'tuple[]',
+        components: [
+          { name: 'buyId', type: 'uint256' },
+          { name: 'targetDrandRound', type: 'uint64' },
+          { name: 'openedAt', type: 'uint32' },
+          { name: 'state', type: 'uint8' },
+        ],
+      },
+      { name: 'nextId', type: 'uint256' },
+    ],
   },
   {
     type: 'function',
@@ -101,6 +110,17 @@ export const jackpotPoolAbi = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'buyId', type: 'uint256' },
+      { name: 'round', type: 'uint64' },
+      { name: 'signature', type: 'bytes' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'settleBatchWithDrand',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'buyIds', type: 'uint256[]' },
       { name: 'round', type: 'uint64' },
       { name: 'signature', type: 'bytes' },
     ],
@@ -169,9 +189,11 @@ export const rewardsCollectorAbi = [
     inputs: [
       { name: 'buyId', type: 'uint256', indexed: true },
       { name: 'listingId', type: 'uint256', indexed: true },
+      { name: 'buyer', type: 'address', indexed: true },
       { name: 'mainToken', type: 'address', indexed: false },
       { name: 'mainAmountOut', type: 'uint256', indexed: false },
       { name: 'targetDrandRound', type: 'uint64', indexed: false },
+      { name: 'openedAt', type: 'uint32', indexed: false },
     ],
   },
   {

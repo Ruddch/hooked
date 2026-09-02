@@ -2,6 +2,7 @@ import {
   formatUnits,
   parseAbiItem,
   parseEventLogs,
+  type Address,
   type Hex,
   type Log,
   type PublicClient,
@@ -27,9 +28,24 @@ const MIN_BUY_USDG = 1_000_000n
 const QUICKNET_GENESIS = 1_692_803_367
 const QUICKNET_PERIOD = 3
 
+const RESOLVABLE_PAGE = 1000n
+/** Queue states from `getResolvableFor`. Resolved / Expired are omitted. */
+export const TICKET_WAITING = 2
+export const TICKET_READY = 3
+
+const ticketOpenedMid = parseAbiItem(
+  'event TicketOpened(uint256 indexed buyId, uint256 indexed listingId, address mainToken, uint256 mainAmountOut, uint64 targetDrandRound)',
+)
 const ticketOpenedLegacy = parseAbiItem(
   'event TicketOpened(uint256 indexed buyId, uint256 indexed listingId, address mainToken, uint256 mainAmountOut)',
 )
+
+export type ResolvableTicket = {
+  buyId: bigint
+  targetDrandRound: bigint
+  openedAt: bigint
+  state: number
+}
 
 export class LootTimeoutError extends Error {
   constructor() {
@@ -123,6 +139,55 @@ function buyFeeLogs(logs: Log[]) {
   })
 }
 
+export async function fetchResolvableFor(
+  client: PublicClient,
+  buyer: Address,
+  aroundId?: bigint,
+  full = false,
+): Promise<ResolvableTicket[]> {
+  const upper = await client.readContract({
+    address: contracts.jackpot,
+    abi: jackpotPoolAbi,
+    functionName: 'resolvableUpperBound',
+  })
+  if (upper <= 1n) return []
+
+  let from = 1n
+  if (!full) {
+    from = upper > RESOLVABLE_PAGE ? upper - RESOLVABLE_PAGE : 1n
+    if (aroundId != null && aroundId > 0n && aroundId < from) from = aroundId
+  }
+
+  const out: ResolvableTicket[] = []
+  while (from < upper) {
+    const [tickets, nextId] = await client.readContract({
+      address: contracts.jackpot,
+      abi: jackpotPoolAbi,
+      functionName: 'getResolvableFor',
+      args: [buyer, from, RESOLVABLE_PAGE],
+    })
+    for (const t of tickets) {
+      out.push({
+        buyId: t.buyId,
+        targetDrandRound: BigInt(t.targetDrandRound),
+        openedAt: BigInt(t.openedAt),
+        state: Number(t.state),
+      })
+    }
+    if (nextId === 0n || nextId <= from || nextId >= upper) break
+    from = nextId
+  }
+  return out
+}
+
+function newestResolvable(tickets: ResolvableTicket[]) {
+  let best: ResolvableTicket | null = null
+  for (const t of tickets) {
+    if (!best || t.buyId > best.buyId) best = t
+  }
+  return best
+}
+
 function openFromBuy(
   buyId: bigint,
   mainAmountOut: bigint,
@@ -146,6 +211,21 @@ export function parseBuyTicket(logs: Log[]): BuyTicket {
       buy?.args.mainAmountOut ?? opened[0].args.mainAmountOut ?? 0n,
       buy?.args.feeMainTaken ?? 0n,
       opened[0].args.targetDrandRound ?? 0n,
+    )
+  }
+
+  const mid = parseEventLogs({
+    abi: [ticketOpenedMid],
+    logs,
+    eventName: 'TicketOpened',
+  })
+  if (mid[0]?.args.buyId != null) {
+    const buy = buys.find((l) => l.args.buyId === mid[0].args.buyId) ?? buys[0]
+    return openFromBuy(
+      mid[0].args.buyId,
+      buy?.args.mainAmountOut ?? mid[0].args.mainAmountOut ?? 0n,
+      buy?.args.feeMainTaken ?? 0n,
+      mid[0].args.targetDrandRound ?? 0n,
     )
   }
 
@@ -192,11 +272,34 @@ function sameTx(hash: Hex | null | undefined, tx: Hex) {
   return hash != null && hash.toLowerCase() === tx.toLowerCase()
 }
 
-/** Re-read hook/rewards logs if the swap receipt omitted them. */
-export async function recoverBuyTicket(client: PublicClient, receipt: TransactionReceipt): Promise<BuyTicket> {
+/** Re-read hook/rewards logs if the swap receipt omitted them. Queue is the fallback when TicketOpened topic0 changed. */
+export async function recoverBuyTicket(
+  client: PublicClient,
+  receipt: TransactionReceipt,
+  buyer?: Address,
+): Promise<BuyTicket> {
   const first = parseBuyTicketFromReceipt(receipt)
-  if (first.kind !== 'none') return first
-  if (receipt.blockNumber == null) return first
+  if (first.kind === 'skipped') return first
+  if (first.kind === 'open' && first.targetDrandRound > 0n) return first
+
+  const queued = buyer
+    ? await fetchResolvableFor(client, buyer, first.kind === 'open' ? first.buyId : undefined).catch(() => [])
+    : []
+  const queuedMatch =
+    first.kind === 'open' ? queued.find((t) => t.buyId === first.buyId) : newestResolvable(queued)
+
+  if (first.kind === 'open') {
+    if (first.targetDrandRound > 0n) return first
+    if (queuedMatch && queuedMatch.targetDrandRound > 0n) {
+      return { ...first, targetDrandRound: queuedMatch.targetDrandRound }
+    }
+  }
+
+  if (receipt.blockNumber == null) {
+    if (first.kind === 'open') return first
+    if (queuedMatch) return openFromBuy(queuedMatch.buyId, 0n, 0n, queuedMatch.targetDrandRound)
+    return first
+  }
 
   try {
     const [opened, skipped, buys] = await Promise.all([
@@ -204,6 +307,7 @@ export async function recoverBuyTicket(client: PublicClient, receipt: Transactio
         address: contracts.rewards,
         abi: rewardsCollectorAbi,
         eventName: 'TicketOpened',
+        args: buyer ? { buyer } : undefined,
         fromBlock: receipt.blockNumber,
         toBlock: receipt.blockNumber,
       }),
@@ -230,7 +334,7 @@ export async function recoverBuyTicket(client: PublicClient, receipt: Transactio
         open.args.buyId,
         buy?.args.mainAmountOut ?? open.args.mainAmountOut ?? 0n,
         buy?.args.feeMainTaken ?? 0n,
-        open.args.targetDrandRound ?? 0n,
+        open.args.targetDrandRound ?? queuedMatch?.targetDrandRound ?? 0n,
       )
     }
     const skip = skipped.find((l) => sameTx(l.transactionHash, tx))
@@ -240,11 +344,16 @@ export async function recoverBuyTicket(client: PublicClient, receipt: Transactio
       if ((buy.args.quoteAmountIn ?? 0n) < MIN_BUY_USDG) {
         return { kind: 'skipped', buyId: buy.args.buyId }
       }
-      return openFromBuy(buy.args.buyId, buy.args.mainAmountOut ?? 0n, buy.args.feeMainTaken ?? 0n, 0n)
+      const round =
+        queued.find((t) => t.buyId === buy.args.buyId)?.targetDrandRound ?? queuedMatch?.targetDrandRound ?? 0n
+      return openFromBuy(buy.args.buyId, buy.args.mainAmountOut ?? 0n, buy.args.feeMainTaken ?? 0n, round)
     }
   } catch {
     /* RPC blip — keep first parse */
   }
+
+  if (first.kind === 'open') return first
+  if (queuedMatch) return openFromBuy(queuedMatch.buyId, 0n, 0n, queuedMatch.targetDrandRound)
   return first
 }
 
@@ -348,16 +457,16 @@ async function readTargetRound(client: PublicClient, buyId: bigint, fallback: bi
   }
 }
 
-async function readReady(client: PublicClient, buyId: bigint): Promise<boolean> {
+async function readQueueTicket(
+  client: PublicClient,
+  buyer: Address,
+  buyId: bigint,
+): Promise<ResolvableTicket | null> {
   try {
-    return await client.readContract({
-      address: contracts.jackpot,
-      abi: jackpotPoolAbi,
-      functionName: 'isReadyToSettle',
-      args: [buyId],
-    })
+    const tickets = await fetchResolvableFor(client, buyer, buyId)
+    return tickets.find((t) => t.buyId === buyId) ?? null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -381,6 +490,7 @@ function sleep(ms: number, signal?: AbortSignal) {
 
 export async function waitForLootSettle(opts: {
   client: PublicClient
+  buyer: Address
   buyId: bigint
   fromBlock: bigint
   targetDrandRound?: bigint
@@ -427,8 +537,11 @@ export async function waitForLootSettle(opts: {
       /* RPC blip — retry until timeout */
     }
 
-    targetRound = await readTargetRound(opts.client, opts.buyId, targetRound)
-    const readyOnchain = targetRound > 0n ? await readReady(opts.client, opts.buyId) : false
+    const queued = await readQueueTicket(opts.client, opts.buyer, opts.buyId)
+    if (queued && queued.targetDrandRound > 0n) targetRound = queued.targetDrandRound
+    else targetRound = await readTargetRound(opts.client, opts.buyId, targetRound)
+
+    const readyOnchain = queued?.state === TICKET_READY
     const ready = readyOnchain || (targetRound > 0n && currentDrandRound() >= targetRound)
     if (ready) {
       if (readySince == null) {

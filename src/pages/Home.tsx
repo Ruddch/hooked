@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { ConnectButton } from '../components/ConnectWallet'
 import { JackpotReadout } from '../components/JackpotReadout'
+import { OpenRounds } from '../components/OpenRounds'
 import { SiteFooter } from '../components/SiteFooter'
 import { SwapCard } from '../components/SwapCard'
 import { WinsList } from '../components/WinsList'
@@ -110,6 +111,20 @@ export function HomePage() {
                   </div>
                 </div>
                 <WinsList />
+              </div>
+            </div>
+
+            <div className="open-rounds" id="openRounds">
+              <div className="wrap">
+                <div>
+                  <h2>Open rounds</h2>
+                  <p className="kick mono">unsettled loot</p>
+                  <p>
+                    Find waiting rolls by wallet and settle them once the oracle round is live — leftover tickets after
+                    a closed tab or a missed signature.
+                  </p>
+                </div>
+                <OpenRounds />
               </div>
             </div>
           </section>

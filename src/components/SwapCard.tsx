@@ -349,8 +349,8 @@ export function SwapCard() {
           startLootWaiting()
         }
         let ticket = parseBuyTicketFromReceipt(swapped)
-        if (ticket.kind === 'none') {
-          ticket = await recoverBuyTicket(publicClient, swapped)
+        if (ticket.kind === 'none' || (ticket.kind === 'open' && ticket.targetDrandRound === 0n)) {
+          ticket = await recoverBuyTicket(publicClient, swapped, address)
         }
         if (ticket.kind === 'skipped') {
           closeLootDrop()
@@ -377,6 +377,7 @@ export function SwapCard() {
         try {
           const settle = await waitForLootSettle({
             client: publicClient,
+            buyer: address,
             buyId: ticket.buyId,
             fromBlock: swapped.blockNumber,
             targetDrandRound: ticket.targetDrandRound,
