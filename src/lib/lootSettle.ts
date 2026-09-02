@@ -1,5 +1,7 @@
 import {
+  bytesToHex,
   formatUnits,
+  hexToBytes,
   parseAbiItem,
   parseEventLogs,
   type Address,
@@ -99,6 +101,39 @@ export function currentDrandRound(ts = Math.floor(Date.now() / 1000)): bigint {
   return BigInt(Math.floor((ts - QUICKNET_GENESIS) / QUICKNET_PERIOD) + 1)
 }
 
+const BLS12_P =
+  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaabn
+
+function modPow(base: bigint, exp: bigint, mod: bigint) {
+  let r = 1n
+  let b = ((base % mod) + mod) % mod
+  let e = exp
+  while (e > 0n) {
+    if (e & 1n) r = (r * b) % mod
+    b = (b * b) % mod
+    e >>= 1n
+  }
+  return r
+}
+
+/** Drand HTTP gives compressed G1 (48 bytes). The on-chain oracle wants uncompressed (96). */
+function uncompressDrandSignature(sig: Hex): Hex {
+  const hex = (sig.startsWith('0x') ? sig.slice(2) : sig).toLowerCase()
+  if (hex.length === 192) return `0x${hex}` as Hex
+  if (hex.length !== 96) throw new Error(`unexpected drand signature length ${hex.length / 2}`)
+  const bytes = hexToBytes(`0x${hex}`)
+  const head = bytes[0]
+  if ((head & 0x40) !== 0) throw new Error('drand signature is infinity')
+  const yLarger = (head & 0x20) !== 0
+  bytes[0] = head & 0x1f
+  const x = BigInt(bytesToHex(bytes))
+  const y2 = (((x * x) % BLS12_P) * x + 4n) % BLS12_P
+  let y = modPow(y2, (BLS12_P + 1n) / 4n, BLS12_P)
+  if ((y * y) % BLS12_P !== y2) throw new Error('drand signature is not on curve')
+  if (y + y > BLS12_P !== yLarger) y = (BLS12_P - y) % BLS12_P
+  return `0x${x.toString(16).padStart(96, '0')}${y.toString(16).padStart(96, '0')}` as Hex
+}
+
 export async function fetchDrandSignature(round: bigint): Promise<Hex> {
   const n = round.toString()
   let lastErr: unknown
@@ -109,7 +144,8 @@ export async function fetchDrandSignature(round: bigint): Promise<Hex> {
       const body = (await res.json()) as { signature?: string }
       const sig = body.signature
       if (!sig) throw new Error('drand response missing signature')
-      return (sig.startsWith('0x') ? sig : `0x${sig}`) as Hex
+      const raw = (sig.startsWith('0x') ? sig : `0x${sig}`) as Hex
+      return uncompressDrandSignature(raw)
     } catch (e) {
       lastErr = e
     }
