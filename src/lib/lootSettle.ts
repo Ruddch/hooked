@@ -25,7 +25,7 @@ const TIER_WADS = [
 export const LOOT_SETTLE_TIMEOUT_MS = 180_000
 export const LOOT_SETTLE_POLL_MS = 1_600
 /** Wait for the keeper after the oracle round is live, then ask the user to settle. */
-export const LOOT_KEEPER_GRACE_MS = 20_000
+export const LOOT_KEEPER_GRACE_MS = 10_000
 /** Used only if `minBuyUsdg()` is unreachable. */
 export const MIN_BUY_USDG_FALLBACK = 10_000_000n
 const QUICKNET_GENESIS = 1_692_803_367
