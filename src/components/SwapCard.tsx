@@ -401,6 +401,38 @@ export function SwapCard() {
     [address, erc20PayToken, ethBalance, payingEth, publicClient, queryClient, tokenBalance],
   )
 
+  const refreshAllowance = useCallback(
+    async (opts?: { expectedMin?: bigint; blockNumber?: bigint }) => {
+      if (!address || !publicClient) {
+        await activeAllowance.refetch()
+        return
+      }
+      const token = side === 'buy' ? contracts.usdg : contracts.mainToken
+      const queryKey = activeAllowance.queryKey
+      const expectedMin = opts?.expectedMin
+      const blockNumber = opts?.blockNumber
+      const waits = [0, 300, 800, 1500, 3000]
+      for (const wait of waits) {
+        if (wait) await new Promise((r) => setTimeout(r, wait))
+        try {
+          const next = await publicClient.readContract({
+            address: token,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [address, contracts.swapRouter],
+            ...(blockNumber != null ? { blockNumber } : {}),
+          })
+          queryClient.setQueryData(queryKey, next)
+          if (expectedMin == null || next >= expectedMin) return
+        } catch {
+          /* receipt node may not have the block yet */
+        }
+      }
+      await activeAllowance.refetch()
+    },
+    [activeAllowance, address, publicClient, queryClient, side],
+  )
+
   const runLoot = useCallback(
     async (swapped: TransactionReceipt, amountInUsdg: bigint) => {
       if (!address || !publicClient || swapped.blockNumber == null) return
@@ -571,7 +603,7 @@ export function SwapCard() {
         setUsdgAmount('')
         setHookedAmount('')
         void refreshPayBalance(swapped.blockNumber ?? undefined)
-        void sellAllowance.refetch()
+        void refreshAllowance({ blockNumber: swapped.blockNumber ?? undefined })
         return
       }
 
@@ -640,7 +672,7 @@ export function SwapCard() {
       setUsdgAmount('')
       setHookedAmount('')
       void refreshPayBalance(swapped.blockNumber ?? undefined)
-      void allowance.refetch()
+      void refreshAllowance({ blockNumber: swapped.blockNumber ?? undefined })
       await runLoot(swapped, buyParsed)
     } catch (e) {
       setPendingKind(null)
@@ -666,8 +698,7 @@ export function SwapCard() {
     switchChain,
     writeContractAsync,
     refreshPayBalance,
-    allowance,
-    sellAllowance,
+    refreshAllowance,
     swapHooked,
     runLoot,
     sqrtP,
@@ -693,10 +724,17 @@ export function SwapCard() {
           args: [contracts.swapRouter, value],
         })
         const approved = await publicClient.waitForTransactionReceipt({ hash: approveHash })
+        if (approved.status === 'reverted') {
+          setPendingKind(null)
+          setApproveMode(null)
+          setLocalErr('Approve failed')
+          return
+        }
+        // Wallet RPC often lags — paint Swap immediately, then sync from chain.
+        queryClient.setQueryData(activeAllowance.queryKey, value)
         setPendingKind(null)
         setApproveMode(null)
-        void activeAllowance.refetch()
-        if (approved.status === 'reverted') setLocalErr('Approve failed')
+        void refreshAllowance({ expectedMin: value, blockNumber: approved.blockNumber ?? undefined })
       } catch (e) {
         setPendingKind(null)
         setApproveMode(null)
@@ -706,7 +744,7 @@ export function SwapCard() {
         if (!rejected && e instanceof Error) setLocalErr(e.message)
       }
     },
-    [activeAllowance, publicClient, side, writeContractAsync],
+    [activeAllowance.queryKey, publicClient, queryClient, refreshAllowance, side, writeContractAsync],
   )
 
   const payName = side === 'buy' ? (payingEth ? 'ETH' : 'USDG') : '$HOOKED'
