@@ -26,7 +26,8 @@ export const LOOT_SETTLE_TIMEOUT_MS = 180_000
 export const LOOT_SETTLE_POLL_MS = 1_600
 /** Wait for the keeper after the oracle round is live, then ask the user to settle. */
 export const LOOT_KEEPER_GRACE_MS = 20_000
-const MIN_BUY_USDG = 1_000_000n
+/** Used only if `minBuyUsdg()` is unreachable. */
+export const MIN_BUY_USDG_FALLBACK = 10_000_000n
 const QUICKNET_GENESIS = 1_692_803_367
 const QUICKNET_PERIOD = 3
 
@@ -58,7 +59,7 @@ export class LootTimeoutError extends Error {
 
 export type BuyTicket =
   | { kind: 'none' }
-  | { kind: 'skipped'; buyId: bigint }
+  | { kind: 'skipped'; buyId: bigint; minBuyUsdg?: bigint }
   | {
       kind: 'open'
       buyId: bigint
@@ -175,6 +176,18 @@ function buyFeeLogs(logs: Log[]) {
   })
 }
 
+export async function readMinBuyUsdg(client: PublicClient): Promise<bigint> {
+  try {
+    return await client.readContract({
+      address: contracts.rewards,
+      abi: rewardsCollectorAbi,
+      functionName: 'minBuyUsdg',
+    })
+  } catch {
+    return MIN_BUY_USDG_FALLBACK
+  }
+}
+
 export async function fetchResolvableFor(
   client: PublicClient,
   buyer: Address,
@@ -233,7 +246,7 @@ function openFromBuy(
   return { kind: 'open', buyId, mainAmountOut, feeMainTaken, targetDrandRound }
 }
 
-export function parseBuyTicket(logs: Log[]): BuyTicket {
+export function parseBuyTicket(logs: Log[], minBuyUsdg = MIN_BUY_USDG_FALLBACK): BuyTicket {
   const buys = buyFeeLogs(logs)
   const opened = parseEventLogs({
     abi: rewardsCollectorAbi,
@@ -286,13 +299,13 @@ export function parseBuyTicket(logs: Log[]): BuyTicket {
     eventName: 'TicketSkipped',
   })
   if (skipped[0]?.args.buyId != null) {
-    return { kind: 'skipped', buyId: skipped[0].args.buyId }
+    return { kind: 'skipped', buyId: skipped[0].args.buyId, minBuyUsdg: skipped[0].args.minBuyUsdg ?? minBuyUsdg }
   }
 
   const buy = buys[0]
   if (buy?.args.buyId != null) {
-    if ((buy.args.quoteAmountIn ?? 0n) < MIN_BUY_USDG) {
-      return { kind: 'skipped', buyId: buy.args.buyId }
+    if ((buy.args.quoteAmountIn ?? 0n) < minBuyUsdg) {
+      return { kind: 'skipped', buyId: buy.args.buyId, minBuyUsdg }
     }
     return openFromBuy(buy.args.buyId, buy.args.mainAmountOut ?? 0n, buy.args.feeMainTaken ?? 0n, 0n)
   }
@@ -300,8 +313,8 @@ export function parseBuyTicket(logs: Log[]): BuyTicket {
   return { kind: 'none' }
 }
 
-export function parseBuyTicketFromReceipt(receipt: TransactionReceipt): BuyTicket {
-  return parseBuyTicket(receipt.logs)
+export function parseBuyTicketFromReceipt(receipt: TransactionReceipt, minBuyUsdg = MIN_BUY_USDG_FALLBACK): BuyTicket {
+  return parseBuyTicket(receipt.logs, minBuyUsdg)
 }
 
 function sameTx(hash: Hex | null | undefined, tx: Hex) {
@@ -313,8 +326,10 @@ export async function recoverBuyTicket(
   client: PublicClient,
   receipt: TransactionReceipt,
   buyer?: Address,
+  minBuyUsdg?: bigint,
 ): Promise<BuyTicket> {
-  const first = parseBuyTicketFromReceipt(receipt)
+  const minBuy = minBuyUsdg ?? (await readMinBuyUsdg(client))
+  const first = parseBuyTicketFromReceipt(receipt, minBuy)
   if (first.kind === 'skipped') return first
   if (first.kind === 'open' && first.targetDrandRound > 0n) return first
 
@@ -374,11 +389,13 @@ export async function recoverBuyTicket(
       )
     }
     const skip = skipped.find((l) => sameTx(l.transactionHash, tx))
-    if (skip?.args.buyId != null) return { kind: 'skipped', buyId: skip.args.buyId }
+    if (skip?.args.buyId != null) {
+      return { kind: 'skipped', buyId: skip.args.buyId, minBuyUsdg: skip.args.minBuyUsdg ?? minBuy }
+    }
     const buy = buys.find((l) => sameTx(l.transactionHash, tx))
     if (buy?.args.buyId != null) {
-      if ((buy.args.quoteAmountIn ?? 0n) < MIN_BUY_USDG) {
-        return { kind: 'skipped', buyId: buy.args.buyId }
+      if ((buy.args.quoteAmountIn ?? 0n) < minBuy) {
+        return { kind: 'skipped', buyId: buy.args.buyId, minBuyUsdg: minBuy }
       }
       const round =
         queued.find((t) => t.buyId === buy.args.buyId)?.targetDrandRound ?? queuedMatch?.targetDrandRound ?? 0n

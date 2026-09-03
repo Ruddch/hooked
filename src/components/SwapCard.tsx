@@ -9,13 +9,14 @@ import {
   useWriteContract,
 } from 'wagmi'
 import { erc20Abi } from '../abi/erc20'
-import { hookedV1Abi, jackpotPoolAbi, poolSwapTestAbi } from '../abi/hooked'
+import { hookedV1Abi, jackpotPoolAbi, poolSwapTestAbi, rewardsCollectorAbi } from '../abi/hooked'
 import { robinhood } from '../chain'
 import { contracts, tokenMeta } from '../config'
 import { closeLootDrop, setLootWaitingPhase, startLootDrop, startLootWaiting } from '../fx/homeFx'
 import {
   fetchDrandSignature,
   LootTimeoutError,
+  MIN_BUY_USDG_FALLBACK,
   parseBuyTicketFromReceipt,
   recoverBuyTicket,
   toLootDrop,
@@ -92,6 +93,13 @@ export function SwapCard() {
     functionName: 'tickSpacing',
     query: { retry: false },
   })
+  const minBuy = useReadContract({
+    address: contracts.rewards,
+    abi: rewardsCollectorAbi,
+    functionName: 'minBuyUsdg',
+    query: { retry: false, staleTime: 60_000 },
+  })
+  const minBuyUsdg = minBuy.data ?? MIN_BUY_USDG_FALLBACK
 
   const balance = useReadContract({
     address: payToken,
@@ -342,21 +350,22 @@ export function SwapCard() {
       void allowance.refetch()
       if (zeroForOne) {
         if (!address || swapped.blockNumber == null) return
-        const likelyOpen = parsed != null && parsed >= 1_000_000n
+        const likelyOpen = parsed != null && parsed >= minBuyUsdg
         if (likelyOpen) {
           setBusyLoot(true)
           setSettling(true)
           startLootWaiting()
         }
-        let ticket = parseBuyTicketFromReceipt(swapped)
+        let ticket = parseBuyTicketFromReceipt(swapped, minBuyUsdg)
         if (ticket.kind === 'none' || (ticket.kind === 'open' && ticket.targetDrandRound === 0n)) {
-          ticket = await recoverBuyTicket(publicClient, swapped, address)
+          ticket = await recoverBuyTicket(publicClient, swapped, address, minBuyUsdg)
         }
         if (ticket.kind === 'skipped') {
           closeLootDrop()
           setBusyLoot(false)
           setSettling(false)
-          setLocalErr('Buy under 1 USDG skips the loot roll. Fee still goes to the pool.')
+          const floor = ticket.minBuyUsdg ?? minBuyUsdg
+          setLocalErr(`Buy under ${trimUnits(formatUnits(floor, tokenMeta.usdgDecimals))} USDG skips the loot roll. Fee still goes to the pool.`)
           return
         }
         if (ticket.kind !== 'open') {
@@ -449,6 +458,7 @@ export function SwapCard() {
     address,
     onRightChain,
     parsed,
+    minBuyUsdg,
     balance.data,
     side,
     poolFee,

@@ -172,6 +172,13 @@ export const rewardsCollectorAbi = [
     outputs: [{ name: '', type: 'uint64' }],
   },
   {
+    type: 'function',
+    name: 'minBuyUsdg',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
     type: 'event',
     name: 'RewardsSettled',
     inputs: [
