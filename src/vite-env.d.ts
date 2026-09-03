@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_POOL_MANAGER?: string
   readonly VITE_JACKPOT?: string
   readonly VITE_REWARDS?: string
+  readonly VITE_DRAND_ORACLE?: string
   readonly VITE_POOL_FEE?: string
   readonly VITE_TICK_SPACING?: string
   readonly VITE_LISTING_ID?: string
