@@ -21,11 +21,11 @@ declare global {
 export const BASE_RATE = 1000;
 export const JACKPOT_CHANCE = 0.01;
 export const POCKETS = [
-  { mult:0.9, tier:"meh",  label:"scratch", w:50, col:"#FF4D2E" },
-  { mult:1.0, tier:"even", label:"even",    w:25, col:"#0B3D3A" },
-  { mult:1.5, tier:"win",  label:"common",  w:12, col:"#0B3D3A" },
-  { mult:2.0, tier:"win",  label:"heat",    w:8,  col:"#00D4AA" },
-  { mult:4.0, tier:"win",  label:"heat",    w:4,  col:"#00D4AA" },
+  { mult:0.9, tier:"meh",  label:"scratch", w:900, col:"#FF4D2E" },
+  { mult:1.2, tier:"even", label:"plus",    w:80,  col:"#0B3D3A" },
+  { mult:2.0, tier:"win",  label:"common",  w:17,  col:"#0B3D3A" },
+  { mult:3.0, tier:"win",  label:"heat",    w:2,   col:"#00D4AA" },
+  { mult:4.0, tier:"win",  label:"heat",    w:1,   col:"#00D4AA" },
 ];
 
 export function pickPocket(){

@@ -16,9 +16,9 @@ import { contracts, tokenMeta } from '../config'
 /** Must stay aligned with `POCKETS` in `fx/homeFx.ts`. */
 const TIER_WADS = [
   900000000000000000n,
-  1000000000000000000n,
-  1500000000000000000n,
+  1200000000000000000n,
   2000000000000000000n,
+  3000000000000000000n,
   4000000000000000000n,
 ] as const
 

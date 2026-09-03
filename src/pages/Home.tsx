@@ -49,11 +49,11 @@ export function HomePage() {
               <div>
                 <p>
                   You don’t just trade. You pull a lever. Base rate converts USDG → $HOOKED, then a random multiplier
-                  lands: <strong>0.9×, 1×, 1.5×, 2×, 4×</strong> — or the <strong>jackpot</strong>. Same UX as a swap.
+                  lands: <strong>0.9×, 1.2×, 2×, 3×, 4×</strong> — or the <strong>jackpot</strong>. Same UX as a swap.
                   Different outcome every time.
                 </p>
                 <p>
-                  Most rolls sit near fair. Some stretch. A rare few punch through into <strong>jackpot</strong>{' '}
+                  Most rolls take a slight haircut. Some stretch. A rare few punch through into <strong>jackpot</strong>{' '}
                   territory — and the drop tells the story before the number does.
                 </p>
               </div>
@@ -73,17 +73,17 @@ export function HomePage() {
                 <p>Slight haircut. Still a swap — just a spicy one.</p>
               </div>
               <div className="o deep">
-                <p className="m">1×</p>
-                <p className="l mono">even</p>
-                <p>Break-even land. Quiet, clean, still a roll.</p>
+                <p className="m">1.2×</p>
+                <p className="l mono">plus</p>
+                <p>A small bump. Quiet, clean, still a roll.</p>
               </div>
               <div className="o deep">
-                <p className="m">1.5×</p>
+                <p className="m">2×</p>
                 <p className="l mono">common</p>
-                <p>Where most pluses land. Fair-ish, still a thrill.</p>
+                <p>Where the pluses start to feel real.</p>
               </div>
               <div className="o mint">
-                <p className="m">2×</p>
+                <p className="m">3×</p>
                 <p className="l mono">heat</p>
                 <p>You got hooked. The field goes mint.</p>
               </div>
