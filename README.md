@@ -17,7 +17,7 @@ Open http://localhost:5173
 
 Push this folder as the repository root (the app, not a parent monorepo). On GitHub: **Settings → Pages → Source: GitHub Actions**. The workflow in `.github/workflows/deploy.yml` builds on every push to `main`/`master` and publishes `dist`.
 
-The site URL is `https://<user>.github.io/<repo>/`. Vite sets `base` from the repo name automatically in CI. For a user/org site (`<user>.github.io`) or a custom domain, the base stays `/`.
+The production URL is [hooked.work](https://hooked.work/). Vite uses `base: /` when `public/CNAME` or `VITE_SITE_URL` is a custom domain. Without that, CI would bake `/<repo>/` into asset URLs and the custom domain would show a blank page.
 
 ## Env
 
