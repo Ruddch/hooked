@@ -106,6 +106,20 @@
 }
 .swap .flip button:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
 .swap .dot.usdg{ background:#2775CA; }
+.swap .pay-asset{
+  display:inline-flex; align-items:center; gap:4px;
+}
+.swap .pay-asset button{
+  display:inline-flex; align-items:center; gap:6px;
+  border:1px solid var(--line); background:#fff; color:var(--muted);
+  padding:4px 8px; font-size:12px; font-weight:500;
+}
+.swap .pay-asset button.on{
+  color:var(--ink); border-color:var(--ink);
+}
+.swap .pay-asset button:hover:not(.on){ color:var(--ink); }
+.swap .bal-hint{ text-transform:none; letter-spacing:0; opacity:.85; }
+.swap .via-eth{ color:var(--muted); font-weight:400; }
 .swap .sell-note{
   display:block; margin:12px 0 0; text-align:center;
   color:var(--muted); font-size:12px;

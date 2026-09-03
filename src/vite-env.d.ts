@@ -7,6 +7,12 @@ interface ImportMetaEnv {
   readonly VITE_USDG?: string
   readonly VITE_MAIN_TOKEN?: string
   readonly VITE_SWAP_ROUTER?: string
+  readonly VITE_WETH?: string
+  readonly VITE_UNIVERSAL_ROUTER?: string
+  readonly VITE_V3_QUOTER?: string
+  readonly VITE_ETH_USDG_FEES?: string
+  readonly VITE_ETH_USDG_SLIPPAGE_BPS?: string
+  readonly VITE_HOOKED_SLIPPAGE_BPS?: string
   readonly VITE_POOL_MANAGER?: string
   readonly VITE_JACKPOT?: string
   readonly VITE_REWARDS?: string

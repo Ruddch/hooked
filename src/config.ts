@@ -13,12 +13,28 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+function feeList(value: string | undefined, fallback: number[]): number[] {
+  if (!value?.trim()) return fallback
+  const parsed = value
+    .split(/[\s,]+/)
+    .map((x) => Number(x.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0)
+  return parsed.length ? parsed : fallback
+}
+
 /** Defaults: HookedV1 listing 6 on Robinhood Chain. */
 export const contracts = {
   hook: addr(import.meta.env.VITE_HOOK, '0x46C4455F65Da6d0E8Bb0274E257F99733ddE2544'),
   usdg: addr(import.meta.env.VITE_USDG, '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168'),
   mainToken: addr(import.meta.env.VITE_MAIN_TOKEN, '0xC66972CB293b77B52b3f5af7f592abC4fb82A1AE'),
   swapRouter: addr(import.meta.env.VITE_SWAP_ROUTER, '0xf9636e6D09a59e5E2E0ffcda1fe2Ba15a2BcdaDC'),
+  /** Uniswap — ETH→USDG→$HOOKED in one Universal Router execute. */
+  weth: addr(import.meta.env.VITE_WETH, '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73'),
+  universalRouter: addr(import.meta.env.VITE_UNIVERSAL_ROUTER, '0x8876789976dEcBfCbBbe364623C63652db8C0904'),
+  v3Quoter: addr(import.meta.env.VITE_V3_QUOTER, '0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7'),
+  ethUsdgFees: feeList(import.meta.env.VITE_ETH_USDG_FEES, [100, 500, 3000]),
+  ethUsdgSlippageBps: num(import.meta.env.VITE_ETH_USDG_SLIPPAGE_BPS, 50),
+  hookedSlippageBps: num(import.meta.env.VITE_HOOKED_SLIPPAGE_BPS, 100),
   poolManager: addr(import.meta.env.VITE_POOL_MANAGER, '0x8366a39CC670B4001A1121B8F6A443A643e40951'),
   jackpot: addr(import.meta.env.VITE_JACKPOT, '0x7a3734F49d62A914Db1BbCa64Babb946A2c82404'),
   rewards: addr(import.meta.env.VITE_REWARDS, '0x80E988297619b16Fa34A800152FE8d1382869A04'),
@@ -38,8 +54,10 @@ export const winsFromBlock = BigInt(import.meta.env.VITE_WINS_FROM_BLOCK ?? '536
 export const tokenMeta = {
   usdgDecimals: 6,
   mainDecimals: 18,
+  ethDecimals: 18,
   usdgSymbol: 'USDG',
   mainSymbol: '$HOOKED',
+  ethSymbol: 'ETH',
 } as const
 
 /** Public HTTP RPCs that answer from the browser (CORS) on chain 4663. */
